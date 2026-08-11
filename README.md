@@ -24,14 +24,14 @@ Windows 动态壁纸与屏保软件 —— 将任意网页设为桌面壁纸和�
 ## 下载安装
 
 从 [Releases](https://github.com/tgcz2011/countdown-desktop/releases) 下载：
-`CountdownDesktop_Setup_1.0.0.2.exe`（NSIS 安装包，安装后自动开机启动）。
+`CountdownDesktop_Setup_1.0.0.3.exe`（NSIS 安装包，安装后自动开机启动）。
 
 ## 开发
 
 ### 构建
 
 ```bash
-go build -ldflags "-H windowsgui -X github.com/tgcz2011/countdown-desktop/version.Version=1.0.0.2" -o countdown-desktop.exe .
+go build -ldflags "-H windowsgui -X github.com/tgcz2011/countdown-desktop/version.Version=1.0.0.3" -o countdown-desktop.exe .
 ```
 
 ### 测试模式（无需托盘交互）
@@ -84,4 +84,4 @@ countdown-desktop/
 
 ## License
 
-MIT
+GPL-3.0（借鉴 Lively Wallpaper 架构，与上游许可证保持一致）

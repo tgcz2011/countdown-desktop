@@ -6,7 +6,10 @@
 
 ; --- General ---
 !define PRODUCT_NAME "Countdown Desktop"
-!define PRODUCT_VERSION "1.0.0.0"
+!ifndef VERSION
+  !define VERSION "1.0.0.3"
+!endif
+!define PRODUCT_VERSION "${VERSION}"
 !define PRODUCT_PUBLISHER "tgcz2011"
 !define PRODUCT_WEB_SITE "https://github.com/tgcz2011/countdown-desktop"
 !define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\countdown-desktop.exe"
@@ -21,12 +24,10 @@ SetCompressor /SOLID lzma
 
 ; --- MUI Settings ---
 !define MUI_ABORTWARNING
-!define MUI_ICON "assets\icon.ico"
-!define MUI_UNICON "assets\icon.ico"
 
 ; --- Pages ---
 !insertmacro MUI_PAGE_WELCOME
-!insertmacro MUI_PAGE_LICENSE "LICENSE"
+!insertmacro MUI_PAGE_LICENSE "..\LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !insertmacro MUI_PAGE_FINISH
@@ -41,8 +42,8 @@ Section "Install"
   SetOutPath "$INSTDIR"
 
   ; Main executable
-  File "countdown-desktop.exe"
-  File "config.json"
+  File "..\countdown-desktop.exe"
+  File "..\config.json"
 
   ; Create shortcuts
   CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"

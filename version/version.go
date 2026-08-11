@@ -6,7 +6,7 @@
 // - b: minor (significant feature additions)
 // - c: patch (small feature additions)
 // - d: build (bug fixes, tweaks)
-var Version = "1.0.0.2"
+var Version = "1.0.0.3"
 
 // BuildTime is injected at build time.
 var BuildTime = "unknown"
