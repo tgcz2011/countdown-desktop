@@ -18,3 +18,7 @@ Thumbs.db
 
 # Config (user-specific)
 config.json
+
+# WebView2 runtime data (generated at runtime)
+*.WebView2/
+log.txt
