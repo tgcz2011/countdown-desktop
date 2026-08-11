@@ -51,6 +51,7 @@ jobs:
           path: |
             countdown-desktop.exe
             CountdownDesktop_Setup_*.exe
+            installer/CountdownDesktop_Setup_*.exe
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
@@ -59,4 +60,5 @@ jobs:
           files: |
             countdown-desktop.exe
             CountdownDesktop_Setup_*.exe
+            installer/CountdownDesktop_Setup_*.exe
           generate_release_notes: true

@@ -7,7 +7,7 @@
 ; --- General ---
 !define PRODUCT_NAME "Countdown Desktop"
 !ifndef VERSION
-  !define VERSION "1.0.0.4"
+  !define VERSION "1.0.0.5"
 !endif
 !define PRODUCT_VERSION "${VERSION}"
 !define PRODUCT_PUBLISHER "tgcz2011"
@@ -16,7 +16,7 @@
 !define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
 
 Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
-OutFile "CountdownDesktop_Setup_${PRODUCT_VERSION}.exe"
+OutFile "..\CountdownDesktop_Setup_${PRODUCT_VERSION}.exe"
 InstallDir "$PROGRAMFILES64\Countdown Desktop"
 InstallDirRegKey HKLM "${PRODUCT_DIR_REGKEY}" ""
 RequestExecutionLevel admin
