@@ -7,7 +7,7 @@
 ; --- General ---
 !define PRODUCT_NAME "Countdown Desktop"
 !ifndef VERSION
-  !define VERSION "1.0.0.3"
+  !define VERSION "1.0.0.4"
 !endif
 !define PRODUCT_VERSION "${VERSION}"
 !define PRODUCT_PUBLISHER "tgcz2011"
@@ -43,7 +43,7 @@ Section "Install"
 
   ; Main executable
   File "..\countdown-desktop.exe"
-  File "..\config.json"
+  File /nonfatal "..\config.json"
 
   ; Create shortcuts
   CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"

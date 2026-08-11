@@ -85,7 +85,7 @@ D:\countdown-desktop\
 ```powershell
 $env:PATH = "C:\Program Files\Go\bin;C:\Program Files\Git\bin;$env:PATH"
 $env:GOPROXY = "https://goproxy.cn,direct"
-go build -ldflags "-H windowsgui -X github.com/tgcz2011/countdown-desktop/version.Version=1.0.0.3" -o countdown-desktop.exe .
+go build -ldflags "-H windowsgui -X github.com/tgcz2011/countdown-desktop/version.Version=1.0.0.4" -o countdown-desktop.exe .
 makensis installer\setup.nsi
 ```
 
