@@ -1,0 +1,61 @@
+﻿name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Get version from tag
+        id: version
+        shell: bash
+        run: |
+          TAG=${GITHUB_REF#refs/tags/v}
+          echo "version=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Build
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          go build -ldflags "-H windowsgui -X github.com/tgcz2011/countdown-desktop/version.Version=$version" -o countdown-desktop.exe .
+
+      - name: Setup NSIS
+        shell: pwsh
+        run: choco install nsis -y --no-progress
+
+      - name: Build Installer
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          makensis /DVERSION=$version installer\setup.nsi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: countdown-desktop-${{ steps.version.outputs.version }}
+          path: |
+            countdown-desktop.exe
+            CountdownDesktop_Setup_*.exe
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Countdown Desktop v${{ steps.version.outputs.version }}
+          files: |
+            countdown-desktop.exe
+            CountdownDesktop_Setup_*.exe
+          generate_release_notes: true

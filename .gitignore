@@ -1,0 +1,24 @@
+﻿# Binary
+countdown-desktop.exe
+*.exe
+*.syso
+
+# NSIS output
+CountdownDesktop_Setup_*.exe
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (user-specific)
+config.json
+
+# WebView2 runtime data (generated at runtime)
+*.WebView2/
+log.txt
