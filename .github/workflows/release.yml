@@ -34,7 +34,8 @@ jobs:
           go build -ldflags "-H windowsgui -X github.com/tgcz2011/countdown-desktop/version.Version=$version" -o countdown-desktop.exe .
 
       - name: Setup NSIS
-        uses: joncloud/makensis-action@v4
+        shell: pwsh
+        run: choco install nsis -y --no-progress
 
       - name: Build Installer
         shell: pwsh

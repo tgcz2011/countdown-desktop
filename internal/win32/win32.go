@@ -367,6 +367,7 @@ type LASTINPUTINFO struct {
 
 var (
 	procGetModuleHandleW = kernel32.NewProc("GetModuleHandleW")
+	procGetTickCount      = kernel32.NewProc("GetTickCount")
 )
 
 func GetModuleHandle() (HINSTANCE, error) {
@@ -391,6 +392,7 @@ var (
 	procTranslateMessage     = user32.NewProc("TranslateMessage")
 	procDispatchMessageW     = user32.NewProc("DispatchMessageW")
 	procSendMessageW         = user32.NewProc("SendMessageW")
+	procSendMessageTimeoutW  = user32.NewProc("SendMessageTimeoutW")
 	procPostMessageW         = user32.NewProc("PostMessageW")
 	procGetWindowTextW       = user32.NewProc("GetWindowTextW")
 	procSetWindowTextW       = user32.NewProc("SetWindowTextW")
@@ -399,6 +401,7 @@ var (
 	procGetWindowLongPtrW    = user32.NewProc("GetWindowLongPtrW")
 	procSetWindowLongPtrW    = user32.NewProc("SetWindowLongPtrW")
 	procSetParent            = user32.NewProc("SetParent")
+	procGetParent            = user32.NewProc("GetParent")
 	procSetWindowPos         = user32.NewProc("SetWindowPos")
 	procFindWindowW          = user32.NewProc("FindWindowW")
 	procFindWindowExW        = user32.NewProc("FindWindowExW")
@@ -412,7 +415,6 @@ var (
 	procReleaseCapture       = user32.NewProc("ReleaseCapture")
 	procGetAsyncKeyState     = user32.NewProc("GetAsyncKeyState")
 	procGetLastInputInfo     = user32.NewProc("GetLastInputInfo")
-	procGetTickCount         = user32.NewProc("GetTickCount")
 	procMessageBoxW          = user32.NewProc("MessageBoxW")
 	procLoadIconW            = user32.NewProc("LoadIconW")
 	procLoadCursorW          = user32.NewProc("LoadCursorW")
@@ -424,11 +426,14 @@ var (
 	procEndPaint             = user32.NewProc("EndPaint")
 	procInvalidateRect       = user32.NewProc("InvalidateRect")
 	procUpdateWindow         = user32.NewProc("UpdateWindow")
+	procIsWindowVisible      = user32.NewProc("IsWindowVisible")
+	procSetLayeredWindowAttributes = user32.NewProc("SetLayeredWindowAttributes")
 	procGetClientRect        = user32.NewProc("GetClientRect")
 	procGetSystemMetrics     = user32.NewProc("GetSystemMetrics")
 	procGetDesktopWindow     = user32.NewProc("GetDesktopWindow")
 	procGetShellWindow       = user32.NewProc("GetShellWindow")
 	procSystemParametersInfoW = user32.NewProc("SystemParametersInfoW")
+	procSetProcessDpiAwarenessContext = user32.NewProc("SetProcessDpiAwarenessContext")
 	procCreatePopupMenu      = user32.NewProc("CreatePopupMenu")
 	procAppendMenuW          = user32.NewProc("AppendMenuW")
 	procSetMenuDefaultItem   = user32.NewProc("SetMenuDefaultItem")
@@ -524,6 +529,12 @@ func SendMessage(hWnd HWND, msg uint32, wParam WPARAM, lParam LPARAM) uintptr {
 	return ret
 }
 
+// SendMessageTimeout with SMTO_NORMAL (0)
+func SendMessageTimeout(hWnd HWND, msg uint32, wParam WPARAM, lParam LPARAM, flags uint32, timeout uint32) uintptr {
+	ret, _, _ := procSendMessageTimeoutW.Call(uintptr(hWnd), uintptr(msg), uintptr(wParam), uintptr(lParam), uintptr(flags), uintptr(timeout), 0)
+	return ret
+}
+
 func PostMessage(hWnd HWND, msg uint32, wParam WPARAM, lParam LPARAM) error {
 	ret, _, err := procPostMessageW.Call(uintptr(hWnd), uintptr(msg), uintptr(wParam), uintptr(lParam))
 	if ret == 0 {
@@ -571,6 +582,11 @@ func SetWindowLongPtr(hWnd HWND, nIndex int32, dwNewLong uintptr) uintptr {
 
 func SetParent(hWndChild, hWndNewParent HWND) HWND {
 	ret, _, _ := procSetParent.Call(uintptr(hWndChild), uintptr(hWndNewParent))
+	return HWND(ret)
+}
+
+func GetParent(hWnd HWND) HWND {
+	ret, _, _ := procGetParent.Call(uintptr(hWnd))
 	return HWND(ret)
 }
 
@@ -725,6 +741,37 @@ func DestroyMenu(hMenu HMENU) bool {
 func GetStockObject(fnObject int32) HBRUSH {
 	ret, _, _ := procGetStockObject.Call(uintptr(fnObject))
 	return HBRUSH(ret)
+}
+
+// LWA_ALPHA
+const LWA_ALPHA = 0x00000002
+
+func SetLayeredWindowAttributes(hWnd HWND, crKey COLORREF, bAlpha byte, dwFlags uint32) bool {
+	ret, _, _ := procSetLayeredWindowAttributes.Call(uintptr(hWnd), uintptr(crKey), uintptr(bAlpha), uintptr(dwFlags))
+	return ret != 0
+}
+
+func UpdateWindow(hWnd HWND) bool {
+	ret, _, _ := procUpdateWindow.Call(uintptr(hWnd))
+	return ret != 0
+}
+
+func IsWindowVisible(hWnd HWND) bool {
+	ret, _, _ := procIsWindowVisible.Call(uintptr(hWnd))
+	return ret != 0
+}
+
+// DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
+const DpiAwarenessPerMonitorV2 = ^uintptr(3) // 0xFFFFFFFC
+
+// SetProcessDpiAwareness makes the process per-monitor DPI aware.
+// Must be called before any window creation.
+func SetProcessDpiAwareness() {
+	// Try PerMonitorV2 first, fall back to system DPI aware (0xFFFFFFFE)
+	r, _, _ := procSetProcessDpiAwarenessContext.Call(DpiAwarenessPerMonitorV2)
+	if r == 0 {
+		procSetProcessDpiAwarenessContext.Call(^uintptr(1)) // DPI_AWARENESS_CONTEXT_SYSTEM_AWARE
+	}
 }
 
 func ShowCursor(bShow bool) int32 {
