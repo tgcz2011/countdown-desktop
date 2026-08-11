@@ -41,7 +41,8 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          makensis /DVERSION=$version installer\setup.nsi
+          # choco installs NSIS here but does not add it to PATH
+          & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=$version installer\setup.nsi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
