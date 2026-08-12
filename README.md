@@ -28,13 +28,13 @@ Windows 动态壁纸软件：把任意网页设置为**动态壁纸**和**屏幕
 
 ```powershell
 # 本地一键构建
-.\build.ps1 -Version 3.0.0.0
+.\build.ps1 -Version 3.0.0.1
 
 # 或分步
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
 .\.venv\Scripts\python.exe -m PyInstaller --noconfirm CountdownDesktop.spec
-& "C:\Program Files\Inno Setup 7\ISCC.exe" /DVERSION=3.0.0.0 installer\setup.iss
+& "C:\Program Files\Inno Setup 7\ISCC.exe" /DVERSION=3.0.0.1 installer\setup.iss
 ```
 
 发布：推送 tag `v<版本>`，GitHub Actions 自动构建安装包并创建 Release。

@@ -2,7 +2,7 @@
 ; build: "C:\Program Files\Inno Setup 7\ISCC.exe" /DVERSION=x.x.x.x installer\setup.iss
 
 #ifndef VERSION
-  #define VERSION "3.0.0.0"
+  #define VERSION "3.0.0.1"
 #endif
 
 #define APPNAME "Countdown Desktop"
@@ -32,7 +32,7 @@ CloseApplications=force
 RestartApplications=no
 
 [Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\ChineseSimplified.isl"
+Name: "chinesesimplified"; MessagesFile: "ChineseSimplified.isl"
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]

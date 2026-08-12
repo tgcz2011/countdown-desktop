@@ -1,6 +1,6 @@
 # HANDOFF.md — Countdown Desktop 交接文档
 
-> 最后更新: 2026-08-12（v3.0.0.0，Python + WebView2 重写）
+> 最后更新: 2026-08-12（v3.0.0.1，修复 CI 语言包）
 
 ## 一、需求（用户原始要求）
 
@@ -20,7 +20,8 @@
 |------|------|------|
 | v1.x | Go + WebView2 | 失败：嵌入渲染/COM 生命周期一连串坑，废弃 |
 | v2.0.0.x | Python + 自编译 CEF helper | CI 能过，但 QtWebEngine 路线曾失败、本机壁纸屏幕显示未验证，整体废弃 |
-| **v3.0.0.0** | **Python + PySide6 + pywebview(WebView2)** | **当前版本，本机全链路验证通过** |
+| **v3.0.0.0** | **Python + PySide6 + pywebview(WebView2)** | 本机全链路验证通过 |
+| **v3.0.0.1** | 同上 | 修复 CI：中文语言包随仓库分发（d 升） |
 
 ## 三、架构
 
@@ -68,6 +69,7 @@ run.py player screensaver → pywebview 窗口 → 全屏 TOPMOST + 隐藏任务
 14. `GetLastInputInfo` 的 GetTickCount 32 位回绕要掩码处理。
 15. NSIS 相关坑已随 NSIS 脚本一起废弃（v3 用 Inno）。
 16. CI 里所有本地手动补丁必须进仓库/构建脚本，否则 CI 复现失败（v2.0.0.1 教训）。
+17. **CI 的 windows-latest 自带 Inno 6 不含 `ChineseSimplified.isl`**（官方精简发行不带语言包）→ 语言包文件 `installer/ChineseSimplified.isl` 必须随仓库分发，`[Languages]` 用相对路径引用。v3.0.0.1 修复。
 
 ## 五、项目结构
 
@@ -119,7 +121,7 @@ git tag v3.0.0.1; git push origin main v3.0.0.1   # Actions 自动 Release
 
 ## 八、版本规则
 
-a=大添加 b=大改 c=小添加 d=小改动；去掉 `.` 后数值必须严格大于上一版本。当前最高 tag：v3.0.0.0（历史 v2.0.0.1 已废弃但保留 tag）。
+a=大添加 b=大改 c=小添加 d=小改动；去掉 `.` 后数值必须严格大于上一版本。当前最高 tag：v3.0.0.1（历史 v1/v2 tag 已废弃但保留）。
 
 ## 九、已知限制 / 待办
 
