@@ -166,6 +166,14 @@ def topmost_fullscreen(hwnd, x, y, w, h) -> None:
     user32.SetWindowPos(hwnd, HWND_TOPMOST, x, y, w, h, SWP_SHOWWINDOW)
 
 
+SW_SHOWMAXIMIZED = 3
+
+
+def maximize(hwnd) -> None:
+    """ShowWindow 最大化：系统按整显示器计算，可绕过工作区夹边。"""
+    user32.ShowWindow(hwnd, SW_SHOWMAXIMIZED)
+
+
 def is_window(hwnd) -> bool:
     return bool(user32.IsWindow(hwnd))
 

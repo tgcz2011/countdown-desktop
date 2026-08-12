@@ -2,7 +2,15 @@
 # usage: .\build.ps1 [-Version 3.0.0.0]
 param([string]$Version = "")
 
-$ErrorActionPreference = "Stop"
+# NOTE: PS 5.1 turns native stderr lines into terminating errors under
+# ErrorActionPreference=Stop; keep Continue and check exit codes instead.
+$ErrorActionPreference = "Continue"
+
+function Invoke-Step([string]$label, [scriptblock]$cmd) {
+  & $cmd
+  if ($LASTEXITCODE -ne 0) { throw "$label failed (exit $LASTEXITCODE)" }
+}
+
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Push-Location $root
 
@@ -13,12 +21,12 @@ Write-Output "building version $Version"
 
 # 1) python deps
 if (-not (Test-Path .\.venv\Scripts\python.exe)) {
-  python -m venv .venv
+  Invoke-Step "venv" { python -m venv .venv }
 }
-.\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
+Invoke-Step "pip" { .\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller }
 
 # 2) PyInstaller
-.\.venv\Scripts\python.exe -m PyInstaller --noconfirm CountdownDesktop.spec
+Invoke-Step "pyinstaller" { .\.venv\Scripts\python.exe -m PyInstaller --noconfirm CountdownDesktop.spec }
 
 # 3) locate ISCC (Inno Setup 6/7)
 $iscc = $null
@@ -36,7 +44,7 @@ if (-not $iscc) {
 if (-not $iscc) { throw "ISCC.exe not found; install Inno Setup first" }
 Write-Output "using $iscc"
 
-& $iscc /DVERSION=$Version installer\setup.iss
+Invoke-Step "iscc" { & $iscc /DVERSION=$Version installer\setup.iss }
 
 Write-Output "done: CountdownDesktop_Setup_$Version.exe"
 Pop-Location

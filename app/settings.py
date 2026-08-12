@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
-"""设置界面：壁纸与屏保分开配置（URL、启用、超时）。"""
+"""设置界面：壁纸与屏保分开配置（URL/本地文件、启用、超时）。"""
 import logging
+import os
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QCheckBox, QDialog, QFormLayout, QGroupBox,
-                               QHBoxLayout, QLabel, QLineEdit, QPushButton,
-                               QSpinBox, QVBoxLayout)
+from PySide6.QtWidgets import (QCheckBox, QDialog, QFileDialog, QFormLayout,
+                               QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+                               QPushButton, QSpinBox, QVBoxLayout)
 
 log = logging.getLogger("settings")
 
@@ -17,8 +18,12 @@ def _normalize_url(text: str) -> str:
     text = text.strip()
     if not text:
         return config.DEFAULT_URL
-    if not text.startswith(("http://", "https://")):
-        text = "https://" + text
+    if text.startswith(("http://", "https://")):
+        return text
+    if os.path.isfile(text):
+        return text
+    if len(text) > 3 and "." in text.split("/")[0]:
+        return "https://" + text
     return text
 
 
@@ -38,9 +43,14 @@ class SettingsDialog(QDialog):
         form_w = QFormLayout(grp_w)
         self.chk_wall = QCheckBox("启用动态壁纸")
         form_w.addRow(self.chk_wall)
+        row_wall = QHBoxLayout()
         self.txt_wall_url = QLineEdit()
-        self.txt_wall_url.setPlaceholderText(URL_HELP)
-        form_w.addRow("壁纸网页 URL", self.txt_wall_url)
+        self.txt_wall_url.setPlaceholderText("网页地址，或浏览选择 视频/图片/动图 文件")
+        row_wall.addWidget(self.txt_wall_url)
+        self.btn_wall_file = QPushButton("浏览…")
+        self.btn_wall_file.clicked.connect(lambda: self._pick(self.txt_wall_url))
+        row_wall.addWidget(self.btn_wall_file)
+        form_w.addRow("壁纸源", row_wall)
         layout.addWidget(grp_w)
 
         # ---- 屏保 ----
@@ -48,9 +58,14 @@ class SettingsDialog(QDialog):
         form_s = QFormLayout(grp_s)
         self.chk_ss = QCheckBox("启用屏保（自绘全屏窗口，不使用系统屏保）")
         form_s.addRow(self.chk_ss)
+        row_ss_url = QHBoxLayout()
         self.txt_ss_url = QLineEdit()
-        self.txt_ss_url.setPlaceholderText(URL_HELP)
-        form_s.addRow("屏保网页 URL", self.txt_ss_url)
+        self.txt_ss_url.setPlaceholderText("网页地址，或浏览选择 视频/图片/动图 文件")
+        row_ss_url.addWidget(self.txt_ss_url)
+        self.btn_ss_file = QPushButton("浏览…")
+        self.btn_ss_file.clicked.connect(lambda: self._pick(self.txt_ss_url))
+        row_ss_url.addWidget(self.btn_ss_file)
+        form_s.addRow("屏保源", row_ss_url)
         self.spin_timeout = QSpinBox()
         self.spin_timeout.setRange(30, 86400)
         self.spin_timeout.setSuffix(" 秒")
@@ -74,6 +89,15 @@ class SettingsDialog(QDialog):
         layout.addLayout(row)
 
         self.load()
+
+    def _pick(self, line_edit) -> None:
+        path, _ = QFileDialog.getOpenFileName(
+            self, "选择媒体文件", "",
+            "视频/图片/动图 (*.mp4 *.webm *.mkv *.mov *.m4v *.gif *.png *.jpg "
+            "*.jpeg *.bmp *.webp);;视频 (*.mp4 *.webm *.mkv *.mov *.m4v);;"
+            "图片/动图 (*.gif *.png *.jpg *.jpeg *.bmp *.webp);;所有文件 (*.*)")
+        if path:
+            line_edit.setText(path)
 
     def load(self) -> None:
         from . import config

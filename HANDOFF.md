@@ -1,6 +1,6 @@
 # HANDOFF.md — Countdown Desktop 交接文档
 
-> 最后更新: 2026-08-12（v3.0.0.1，修复 CI 语言包）
+> 最后更新: 2026-08-12（v3.0.1.2，媒体类型支持 + 屏保全屏修复）
 
 ## 一、需求（用户原始要求）
 
@@ -22,6 +22,7 @@
 | v2.0.0.x | Python + 自编译 CEF helper | CI 能过，但 QtWebEngine 路线曾失败、本机壁纸屏幕显示未验证，整体废弃 |
 | **v3.0.0.0** | **Python + PySide6 + pywebview(WebView2)** | 本机全链路验证通过 |
 | **v3.0.0.1** | 同上 | 修复 CI：中文语言包随仓库分发（d 升） |
+| **v3.0.1.2** | 同上 | 壁纸/屏保支持视频/图片/动图（c 升）+ 屏保底部缺口修复（d 升） |
 
 ## 三、架构
 
@@ -70,6 +71,12 @@ run.py player screensaver → pywebview 窗口 → 全屏 TOPMOST + 隐藏任务
 15. NSIS 相关坑已随 NSIS 脚本一起废弃（v3 用 Inno）。
 16. CI 里所有本地手动补丁必须进仓库/构建脚本，否则 CI 复现失败（v2.0.0.1 教训）。
 17. **CI 的 windows-latest 自带 Inno 6 不含 `ChineseSimplified.isl`**（官方精简发行不带语言包）→ 语言包文件 `installer/ChineseSimplified.isl` 必须随仓库分发，`[Languages]` 用相对路径引用。v3.0.0.1 修复。
+18. **屏保全屏夹边**：pywebview/Qt 窗口 `SetWindowPos` 全屏会被系统夹到工作区附近（实测 3824x1707 vs 虚拟屏 3840x1746，底部露壁纸）；外部 SetWindowPos/去边框样式都无效，唯一有效是 `ShowWindow(SW_SHOWMAXIMIZED)`（隐藏任务栏后按整显示器计算）。顺序：隐藏任务栏 → maximize → SetWindowPos TOPMOST 双保险。v3.0.1.2 修复。
+19. **验证前必须清残留壁纸进程**：旧壁纸窗口挂在宿主上层会遮住新窗口，抓图看到旧内容误判为新功能失败。测试媒体类型前先 `Get-Process CountdownDesktop/python player` 全清。
+20. **本地媒体文件必须走 127.0.0.1 HTTP**：WebView2 默认禁 file:// 访问；app/media.py 的 LocalSource（ThreadingHTTPServer + Range 支持）保活在播放器进程内。
+21. **源无效必须回退默认网页**：配置指向已删除的本地文件会黑屏（`D:\...` 被补成 https 域名也打不开）；media.resolve 对路径样式但文件不存在的源回退 `config.DEFAULT_URL`。
+22. **build.ps1 在 PS 5.1 下不能用 `$ErrorActionPreference="Stop"`**：原生 exe 的 stderr INFO 行（PyInstaller/ISCC 都有）会变终止错误；改 Continue + 检查 `$LASTEXITCODE`（Invoke-Step）。
+23. 验证机长期无人输入：主程序启动 600s 后屏保会自动触发，属正常产品行为，验证壁纸时注意区分（抓图看到黑顶=屏保盖在上面）。
 
 ## 五、项目结构
 
@@ -82,6 +89,7 @@ countdown-desktop/
 │   ├── win32.py            Win32 封装（嵌入/全屏/空闲/自启/mutex/DPI）
 │   ├── settings.py         设置对话框（壁纸与屏保分开设）
 │   ├── config.py           config.json 读写（默认 URL + 600s）
+│   ├── media.py            媒体源：类型识别/本地文件 HTTP 服务/视频图片渲染页
 │   └── version.py          版本号（唯一来源之一，供 build.ps1 读取）
 ├── assets/icon.ico
 ├── installer/
@@ -112,16 +120,16 @@ countdown-desktop/
 
 ```powershell
 # 本地
-.\build.ps1 -Version 3.0.0.1        # venv+pip+PyInstaller+ISCC 一条龙
+.\build.ps1 -Version 3.0.1.2        # venv+pip+PyInstaller+ISCC 一条龙
 
 # 发布
 git add -A; git commit -m "..."
-git tag v3.0.0.1; git push origin main v3.0.0.1   # Actions 自动 Release
+git tag v3.0.1.2; git push origin main v3.0.1.2   # Actions 自动 Release
 ```
 
 ## 八、版本规则
 
-a=大添加 b=大改 c=小添加 d=小改动；去掉 `.` 后数值必须严格大于上一版本。当前最高 tag：v3.0.0.1（历史 v1/v2 tag 已废弃但保留）。
+a=大添加 b=大改 c=小添加 d=小改动；去掉 `.` 后数值必须严格大于上一版本。当前最高 tag：v3.0.1.2（历史 v1/v2 tag 已废弃但保留）。
 
 ## 九、已知限制 / 待办
 

@@ -55,23 +55,24 @@ def _find_own_window(title: str):
 
 def run(mode: str) -> None:
     _setup_logging(mode)
-    from . import config, win32
+    from . import config, win32, media
     import webview
 
     win32.set_process_dpi_awareness()
     cfg = config.load()
     title = WINDOW_TITLE[mode]
+    url = cfg[mode]["url"]
+    x, y, w, h = win32.virtual_screen()
 
-    if mode == "wallpaper":
-        url = cfg["wallpaper"]["url"]
-        x, y, w, h = win32.virtual_screen()
-    else:
-        url = cfg["screensaver"]["url"]
-        x, y, w, h = win32.virtual_screen()
+    kind, src, local = media.resolve(url)
+    if local is not None:
+        _KEEP_LOCAL[mode] = local
+    log.info("starting player mode=%s url=%s kind=%s rect=%s", mode, url, kind, (x, y, w, h))
 
-    log.info("starting player mode=%s url=%s rect=%s", mode, url, (x, y, w, h))
-    window = webview.create_window(title, url, width=w, height=h, x=x, y=y,
-                                   frameless=True)
+    html = media.build_html(kind, src) if kind in ("video", "anim", "image") else None
+    window = webview.create_window(
+        title, src if html is None else "", html=html,
+        width=w, height=h, x=x, y=y, frameless=True)
 
     def on_shown():
         try:
@@ -83,6 +84,9 @@ def run(mode: str) -> None:
 
     webview.start(gui="edgechromium", private_mode=False)
     log.info("player loop exited mode=%s", mode)
+
+
+_KEEP_LOCAL = {}
 
 
 def _on_shown(mode: str, window) -> None:
@@ -104,9 +108,12 @@ def _on_shown(mode: str, window) -> None:
         # 屏保：全屏置顶 + 隐藏光标与任务栏 + 输入监听退出
         win32.set_ex_style(hwnd, add=win32.WS_EX_TOOLWINDOW | win32.WS_EX_NOACTIVATE,
                            remove=win32.WS_EX_APPWINDOW)
+        _hide_taskbar(True)
+        # 先隐藏任务栏再 maximize：最大化按整显示器计算，绕过工作区夹边；
+        # SetWindowPos 单独用会被 Qt 夹到工作区附近尺寸（实测 3824x1707 vs 3840x1746）
+        win32.maximize(hwnd)
         win32.topmost_fullscreen(hwnd, x, y, w, h)
         win32.user32.ShowCursor(False)
-        _hide_taskbar(True)
         log.info("screensaver shown")
 
         def watch_input():

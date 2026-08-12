@@ -2,7 +2,7 @@
 ; build: "C:\Program Files\Inno Setup 7\ISCC.exe" /DVERSION=x.x.x.x installer\setup.iss
 
 #ifndef VERSION
-  #define VERSION "3.0.0.1"
+  #define VERSION "3.0.1.2"
 #endif
 
 #define APPNAME "Countdown Desktop"

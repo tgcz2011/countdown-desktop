@@ -3,8 +3,9 @@
 Windows 动态壁纸软件：把任意网页设置为**动态壁纸**和**屏幕保护**，默认地址均为 `https://zztool.free.nf/countdown`（高考倒计时页）。
 
 - 动态壁纸：网页窗口嵌入桌面壁纸层（桌面图标之下、原壁纸之上），桌面图标正常可点。
+- 源类型：壁纸/屏保源支持 **网页、视频（mp4/webm/mkv/mov）、图片、动图（gif）**；可用远程地址或本地文件（设置里「浏览…」选择）；视频自动循环静音播放，图片/动图铺满黑底。
 - 屏幕保护：**自绘全屏置顶窗口，不使用系统屏保**；空闲达到设定时长自动触发，任意键鼠输入立即退出，默认 600 秒。
-- 壁纸与屏保的 URL **分开设置、均可修改**，互不影响。
+- 壁纸与屏保的源 **分开设置、均可修改**，互不影响。
 - 托盘图标：单击弹出设置；右键菜单含设置、立即启动屏保、刷新壁纸、开机自启、退出。
 
 ## 运行环境
@@ -16,8 +17,8 @@ Windows 动态壁纸软件：把任意网页设置为**动态壁纸**和**屏幕
 
 1. 从 [Releases](https://github.com/tgcz2011/countdown-desktop/releases) 下载 `CountdownDesktop_Setup_<版本>.exe` 安装（默认按用户安装，免管理员权限）。
 2. 软件常驻托盘。单击托盘或右键 →「设置」：
-   - 「动态壁纸」：启用开关 + 壁纸网页 URL；
-   - 「屏幕保护」：启用开关 + 屏保网页 URL + 空闲触发时长（秒）；
+   - 「动态壁纸」：启用开关 + 壁纸源（网页 URL 或本地视频/图片/动图，可「浏览…」选择）；
+   - 「屏幕保护」：启用开关 + 屏保源 + 空闲触发时长（秒）；
    - 「保存」后壁纸按新配置立即重启。
 3. 「立即启动屏保」可当场预览；按任意键或移动鼠标退出。
 4. 「开机自启」写入 HKCU 注册表，登录自动启动（卸载自动清理）。
@@ -28,13 +29,13 @@ Windows 动态壁纸软件：把任意网页设置为**动态壁纸**和**屏幕
 
 ```powershell
 # 本地一键构建
-.\build.ps1 -Version 3.0.0.1
+.\build.ps1 -Version 3.0.1.2
 
 # 或分步
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller
 .\.venv\Scripts\python.exe -m PyInstaller --noconfirm CountdownDesktop.spec
-& "C:\Program Files\Inno Setup 7\ISCC.exe" /DVERSION=3.0.0.1 installer\setup.iss
+& "C:\Program Files\Inno Setup 7\ISCC.exe" /DVERSION=3.0.1.2 installer\setup.iss
 ```
 
 发布：推送 tag `v<版本>`，GitHub Actions 自动构建安装包并创建 Release。
