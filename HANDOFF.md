@@ -160,3 +160,22 @@ zztool.free.nf 有 JS 验证（slowAES cookie + 跳转），WebView2 能正常�
 
 - 默认分支是 **main**（之前代码推到了 master，用户看不到 → 已合并）
 - 发布前确认 main 是最新代码
+
+### 14. NSIS 路径是脚本相对路径
+setup.nsi 在 installer/ 目录，`File "LICENSE"`、`File "..\countdown-desktop.exe"` 等**相对于脚本目录**解析！
+- LICENSE/icon/exe 都要用 `..\` 前缀
+- icon 还要求合法 ICO 格式（手写 ICO 会被 NSIS 拒绝 → 用 System.Drawing 生成或干脆去掉 MUI_ICON）
+- `OutFile` 也是相对脚本目录 → 输出到根目录用 `..\`
+
+### 15. config.json 不能打包
+config.json 运行时自动生成且被 .gitignore 排除，CI checkout 后不存在。
+安装脚本必须 `File /nonfatal`，否则 CI 构建失败（本地有 config.json 所以本地能过——CI 才暴露）。
+
+### 16. choco 安装的 NSIS 不在 PATH
+GitHub Actions windows runner 上 `choco install nsis` 装到 `C:\Program Files (x86)\NSIS` 但不在 PATH。
+调用必须用完整路径：`& "C:\Program Files (x86)\NSIS\makensis.exe"`。
+
+### 17. 版本号与 tag 纪律
+- 每次改动（含 workflow/文档）都要升版本号（d+1）并同步 README/HANDOFF
+- 失败的 tag 要删掉重打（git tag -d + git push origin :refs/tags/xxx）
+- Release 产物检查：gh release view 确认 asset 完整
