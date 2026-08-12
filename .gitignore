@@ -1,24 +1,42 @@
-﻿# Binary
-countdown-desktop.exe
+# Python
+__pycache__/
+*.pyc
+*.spec
+build/
+dist/
+
+# CEF / MinGW toolchain (large binaries, downloaded by build_cef_helper.py)
+third_party/cef_binary_*/
+third_party/w64devkit/
+third_party/cef.tar.bz2
+third_party/w64devkit.7z.exe
+third_party/cef_helper/obj/
+third_party/cef_helper/cef_helper.exe
+third_party/cef_helper/libcef.dll
+third_party/cef_helper/Resources/
+third_party/cef_helper/*.dll
+third_party/cef_helper/*.bin
+third_party/cef_helper/icudtl.dat
+
+# Runtime data
+*.WebView2/
+log.txt
+config.json
+
+# Old Go version (removed in v2.0.0.0)
 *.exe
-*.syso
+!dist/CountdownDesktop/CountdownDesktop.exe
 
-# NSIS output
-CountdownDesktop_Setup_*.exe
-
-# IDE
+# IDE / OS
 .idea/
 .vscode/
-*.swp
-*.swo
-
-# OS
 .DS_Store
 Thumbs.db
 
-# Config (user-specific)
-config.json
+# Local Python 3.11 (used for cefpython experiments, not needed)
+.python311/
+python-3.11.9-amd64.exe
 
-# WebView2 runtime data (generated at runtime)
-*.WebView2/
-log.txt
+# helper build artifacts
+third_party/cef_helper/build.rsp
+third_party/cef_helper/*.txt

@@ -1,87 +1,79 @@
 # Countdown Desktop
 
-Windows 动态壁纸与屏保软件 —— 将任意网页设为桌面壁纸和屏保（默认 https://zztool.free.nf/countdown 高考倒计时页面）。
+Windows 动态壁纸与屏保软件：将任意网页设为桌面壁纸与屏保（默认 https://zztool.free.nf/countdown 高考倒计时页面）。
 
 ## 功能
 
 | 功能 | 说明 |
 |------|------|
-| 网页壁纸 | 将任意 URL 设为桌面壁纸，嵌入桌面图标层之下（WorkerW/Progman 技术） |
-| 网页屏保 | 自定义全屏置顶窗口屏保（非系统屏保机制），默认超时 600s 可调 |
-| 独立配置 | 壁纸 URL 与屏保 URL 分开设置，互不干扰 |
-| 系统托盘 | 托盘图标 + 右键菜单（切换壁纸/屏保、打开设置、退出） |
-| 原生设置窗口 | 纯 Win32 控件（无第三方 GUI 库） |
-| WebView2 渲染 | 基于系统内置 Microsoft Edge WebView2 Runtime，Win10/11 自带 |
+| 网页壁纸 | 任意 URL 嵌入桌面（CEF 渲染 + WorkerW 嵌入，Lively 同构方案） |
+| 网页屏保 | CEF 全屏置顶窗口 + 输入监听退出（非系统屏保），默认超时 600s 可调 |
+| 独立配置 | 壁纸 URL / 屏保 URL 分开设置，互不干扰 |
+| 系统托盘 | Qt 原生托盘（QSystemTrayIcon），右键菜单：切换壁纸/屏保、设置、退出 |
+| 设置窗口 | Qt 对话框：URL、超时、启用开关、测试按钮 |
+| 自带浏览器 | 打包 CEF（Chromium 内核），**不依赖系统 WebView/Edge** |
+
+## 技术栈
+
+- **Python 3.13** + PySide6（QtWidgets 托盘/设置，不含 QtWebEngine）
+- **CEF 3.2704**（Chromium）独立渲染进程 `cef_helper.exe`（C++，MinGW 编译，随包分发）
+- 壁纸嵌入：CEF 窗口最小化创建 → WS_CHILD → SetParent 到壁纸 WorkerW → 恢复显示（与 Lively 完全同构）
+- 打包：PyInstaller onedir + NSIS 安装包
+- CI：GitHub Actions（下载 CEF + 编译 helper + PyInstaller + NSIS）
 
 ## 系统要求
 
-- Windows 10 1809+ 或 Windows 11（客户端版本，需要 DWM 桌面合成）
-- Microsoft Edge WebView2 Runtime（Win10/11 系统自带，应用目录也内置了 WebView2Loader.dll）
-- 无需其他运行时
+- Windows 10/11（客户端版本）
+- 无其他运行时依赖（Chromium 已打包，约 225MB 安装）
 
-> 注意：Windows Server（无 DWM 合成）上壁纸嵌入渲染不可用，屏保功能不受影响。
+## 下载
 
-## 下载安装
+Releases: <https://github.com/tgcz2011/countdown-desktop/releases>
 
-从 [Releases](https://github.com/tgcz2011/countdown-desktop/releases) 下载：
-`CountdownDesktop_Setup_1.0.0.5.exe`（NSIS 安装包，安装后自动开机启动）。
+`CountdownDesktop_Setup_x.x.x.x.exe`（NSIS 安装包，自动开机启动）。
 
 ## 开发
 
-### 构建
-
 ```bash
-go build -ldflags "-H windowsgui -X github.com/tgcz2011/countdown-desktop/version.Version=1.0.0.5" -o countdown-desktop.exe .
-```
+# 依赖（仅主程序；helper 已预编译）
+pip install PySide6
 
-### 测试模式（无需托盘交互）
+# 运行（开发模式）
+python run.py                          # 托盘模式
+python run.py --test-screensaver       # 屏保 15s
+python run.py --test-wallpaper         # 壁纸 25s
+python run.py --test-settings          # 设置窗口
+python run.py --test-standalone        # 独立 CEF 窗口
 
-```bash
-countdown-desktop.exe --test-wallpaper    # 壁纸 25s 自动退出
-countdown-desktop.exe --test-screensaver  # 屏保 15s 自动退出
-countdown-desktop.exe --test-settings     # 设置窗口 15s 自动关闭
-countdown-desktop.exe --test-standalone   # 独立 WebView2 窗口（调试渲染）
-```
+# 重新编译 CEF helper（需要下载 CEF 104MB + MinGW 61MB）
+python third_party/build_cef_helper.py
 
-### 构建安装包
-
-```bash
+# 打包
+python -m PyInstaller --noconfirm --onedir --windowed --name CountdownDesktop run.py
 makensis installer\setup.nsi
 ```
 
-### 版本号规则
-
-格式 `a.b.c.d`：d=修复，c=小功能，b=重要功能，a=架构变更。去掉 "." 后必须递增。
-
-### 项目结构
+## 项目结构
 
 ```
 countdown-desktop/
-├── main.go                        # 入口：DPI 初始化、单实例、测试模式、动作分发
-├── version/version.go             # 版本号（ldflags 注入）
-├── internal/
-│   ├── webview/webview.go         # WebView2 COM 封装（纯 syscall，零 CGo）
-│   ├── wallpaper/wallpaper.go     # 壁纸引擎（WorkerW/Progman 嵌入 + Z-order）
-│   ├── screensaver/screensaver.go # 全屏屏保 + 空闲检测
-│   ├── tray/tray.go               # 系统托盘（Shell_NotifyIcon）
-│   ├── settings/settings.go       # Win32 原生设置窗口
-│   ├── config/config.go           # JSON 配置
-│   ├── logutil/log.go             # 文件日志（exe 同目录 log.txt）
-│   └── win32/win32.go             # Win32 API 类型/常量/函数封装
-├── installer/setup.nsi            # NSIS 安装脚本
-├── WebView2Loader.dll             # WebView2 加载器（随包分发）
-├── assets/icon.ico
-├── README.md / HANDOFF.md
-└── .github/workflows/release.yml  # tag 推送自动构建 + Release
+├── run.py                     # 入口
+├── app/
+│   ├── main.py                # 应用主逻辑（托盘/调度/测试模式）
+│   ├── cef.py                 # CEF helper 进程管理（嵌入/全屏）
+│   ├── desktop.py             # Win32 桌面嵌入（WorkerW/Progman）
+│   ├── screensaver.py         # 屏保引擎（输入监听）
+│   ├── wallpaper.py           # 壁纸引擎
+│   ├── settings.py            # 设置对话框
+│   ├── tray.py                # 系统托盘
+│   └── config.py              # JSON 配置
+├── third_party/
+│   ├── cef_helper/            # CEF 渲染进程（C++ 源码 + 编译产物）
+│   └── build_cef_helper.py    # helper 构建脚本（本地 + CI）
+├── installer/setup.nsi        # NSIS 安装脚本
+└── .github/workflows/release.yml
 ```
-
-## 技术要点
-
-- 纯 Go + syscall，无 CGo，单二进制
-- WebView2 COM vtable 手写封装（见 HANDOFF.md 的踩坑记录）
-- 壁纸嵌入：检测 Win11 raised desktop（WS_EX_NOREDIRECTIONBITMAP）→ 0x052C wParam=0xD/lParam=0x1 创建 WorkerW → WS_CHILD + SetParent → Z-order 置于图标层之下
-- 所有 Win32/WebView2 操作必须运行在窗口创建线程（opCh 调度）
 
 ## License
 
-GPL-3.0（借鉴 Lively Wallpaper 架构，与上游许可证保持一致）
+GPL-3.0（架构借鉴 Lively Wallpaper）

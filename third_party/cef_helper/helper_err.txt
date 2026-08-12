@@ -1,0 +1,29 @@
+D:\countdown-desktop\third_party\cef_helper\cef_helper.cpp:52:8: error: 'void {anonymous}::HelperClient::OnTitleChange(CefRefPtr<CefBrowser>, const CefString&)' marked 'override', but does not override
+   52 |   void OnTitleChange(CefRefPtr<CefBrowser> browser,
+      |        ^~~~~~~~~~~~~
+D:\countdown-desktop\third_party\cef_helper\cef_helper.cpp: In function 'int main(int, char**)':
+D:\countdown-desktop\third_party\cef_helper\cef_helper.cpp:132:29: error: cannot convert 'CefRect' to 'RECT' {aka 'tagRECT'}
+  132 |   win_info.SetAsChild(hwnd, CefRect(0, 0, width, height));
+      |                             ^~~~~~~~~~~~~~~~~~~~~~~~~~~~
+      |                             |
+      |                             CefRect
+In file included from D:\countdown-desktop\third_party\cef_binary_3.2704.1414.g185cd6c_windows64_minimal/include/cef_base.h:43,
+                 from D:\countdown-desktop\third_party\cef_binary_3.2704.1414.g185cd6c_windows64_minimal/include/cef_app.h:42,
+                 from D:\countdown-desktop\third_party\cef_helper\cef_helper.cpp:4:
+D:\countdown-desktop\third_party\cef_binary_3.2704.1414.g185cd6c_windows64_minimal/include/internal/cef_win.h:112:48: note: initializing argument 2 of 'void CefWindowInfo::SetAsChild(HWND, RECT)'
+  112 |   void SetAsChild(CefWindowHandle parent, RECT windowRect) {
+      |                                           ~~~~~^~~~~~~~~~
+D:\countdown-desktop\third_party\cef_helper\cef_helper.cpp:139:37: error: no matching function for call to 'CefBrowserHost::CreateBrowser(CefWindowInfo&, {anonymous}::HelperClient*, std::string&, CefBrowserSettings&, std::nullptr_t, std::nullptr_t)'
+  139 |   if (!CefBrowserHost::CreateBrowser(win_info, client.get(), url,
+      |        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  140 |                                      browser_settings, nullptr, nullptr)) {
+      |                                      ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+  • there is 1 candidate
+In file included from D:\countdown-desktop\third_party\cef_binary_3.2704.1414.g185cd6c_windows64_minimal/include/cef_print_handler.h:42,
+                 from D:\countdown-desktop\third_party\cef_binary_3.2704.1414.g185cd6c_windows64_minimal/include/cef_browser_process_handler.h:43,
+                 from D:\countdown-desktop\third_party\cef_binary_3.2704.1414.g185cd6c_windows64_minimal/include/cef_app.h:43:
+    • candidate 1: 'static bool CefBrowserHost::CreateBrowser(const CefWindowInfo&, CefRefPtr<CefClient>, const CefString&, const CefBrowserSettings&, CefRefPtr<CefRequestContext>)'
+      D:\countdown-desktop\third_party\cef_binary_3.2704.1414.g185cd6c_windows64_minimal/include/cef_browser.h:299:15:
+        299 |   static bool CreateBrowser(const CefWindowInfo& windowInfo,
+            |               ^~~~~~~~~~~~~
+      • candidate expects 5 arguments, 6 provided

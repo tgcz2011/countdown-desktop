@@ -1,4 +1,4 @@
-﻿name: Build and Release
+name: Build and Release
 
 on:
   push:
@@ -15,11 +15,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: '1.23'
-
       - name: Get version from tag
         id: version
         shell: bash
@@ -27,11 +22,43 @@ jobs:
           TAG=${GITHUB_REF#refs/tags/v}
           echo "version=$TAG" >> $GITHUB_OUTPUT
 
-      - name: Build
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install Python deps
         shell: pwsh
         run: |
-          $version = "${{ steps.version.outputs.version }}"
-          go build -ldflags "-H windowsgui -X github.com/tgcz2011/countdown-desktop/version.Version=$version" -o countdown-desktop.exe .
+          python -m pip install --upgrade pip
+          python -m pip install PySide6 pyinstaller
+
+      - name: Build CEF helper (downloads CEF + MinGW)
+        shell: pwsh
+        run: |
+          python third_party\build_cef_helper.py
+
+      - name: PyInstaller package
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --onedir --windowed --name CountdownDesktop `
+            --exclude-module PySide6.QtWebEngineWidgets `
+            --exclude-module PySide6.QtWebEngineCore `
+            --exclude-module PySide6.QtWebEngineQuick `
+            --exclude-module PySide6.QtWebChannel `
+            --exclude-module PySide6.QtQml `
+            --exclude-module PySide6.QtQuick `
+            run.py
+
+      - name: Copy CEF runtime into package
+        shell: pwsh
+        run: |
+          $src = "third_party\cef_helper"
+          $dst = "dist\CountdownDesktop"
+          Copy-Item "$src\cef_helper.exe","$src\libcef.dll" $dst -Force
+          Copy-Item "$src\d3dcompiler_43.dll","$src\d3dcompiler_47.dll","$src\libEGL.dll","$src\libGLESv2.dll" $dst -Force
+          Copy-Item "$src\natives_blob.bin","$src\snapshot_blob.bin","$src\widevinecdmadapter.dll","$src\icudtl.dat" $dst -Force -ErrorAction SilentlyContinue
+          Copy-Item "$src\Resources" "$dst\Resources" -Recurse -Force
 
       - name: Setup NSIS
         shell: pwsh
@@ -41,7 +68,6 @@ jobs:
         shell: pwsh
         run: |
           $version = "${{ steps.version.outputs.version }}"
-          # choco installs NSIS here but does not add it to PATH
           & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=$version installer\setup.nsi
 
       - name: Upload artifacts
@@ -49,16 +75,14 @@ jobs:
         with:
           name: countdown-desktop-${{ steps.version.outputs.version }}
           path: |
-            countdown-desktop.exe
+            dist/CountdownDesktop/CountdownDesktop.exe
             CountdownDesktop_Setup_*.exe
-            installer/CountdownDesktop_Setup_*.exe
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           name: Countdown Desktop v${{ steps.version.outputs.version }}
           files: |
-            countdown-desktop.exe
+            dist/CountdownDesktop/CountdownDesktop.exe
             CountdownDesktop_Setup_*.exe
-            installer/CountdownDesktop_Setup_*.exe
           generate_release_notes: true

@@ -1,18 +1,15 @@
-﻿; Countdown Desktop - NSIS Installer Script
-; =========================================
-
+; Countdown Desktop - NSIS Installer (Python + CEF)
 !include "MUI2.nsh"
 !include "FileFunc.nsh"
 
-; --- General ---
-!define PRODUCT_NAME "Countdown Desktop"
 !ifndef VERSION
-  !define VERSION "1.0.0.5"
+  !define VERSION "2.0.0.0"
 !endif
+!define PRODUCT_NAME "Countdown Desktop"
 !define PRODUCT_VERSION "${VERSION}"
 !define PRODUCT_PUBLISHER "tgcz2011"
 !define PRODUCT_WEB_SITE "https://github.com/tgcz2011/countdown-desktop"
-!define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\countdown-desktop.exe"
+!define PRODUCT_DIR_REGKEY "Software\Microsoft\Windows\CurrentVersion\App Paths\CountdownDesktop.exe"
 !define PRODUCT_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_NAME}"
 
 Name "${PRODUCT_NAME} ${PRODUCT_VERSION}"
@@ -22,10 +19,7 @@ InstallDirRegKey HKLM "${PRODUCT_DIR_REGKEY}" ""
 RequestExecutionLevel admin
 SetCompressor /SOLID lzma
 
-; --- MUI Settings ---
 !define MUI_ABORTWARNING
-
-; --- Pages ---
 !insertmacro MUI_PAGE_WELCOME
 !insertmacro MUI_PAGE_LICENSE "..\LICENSE"
 !insertmacro MUI_PAGE_DIRECTORY
@@ -37,59 +31,47 @@ SetCompressor /SOLID lzma
 
 !insertmacro MUI_LANGUAGE "English"
 
-; --- Sections ---
 Section "Install"
   SetOutPath "$INSTDIR"
 
-  ; Main executable
-  File "..\countdown-desktop.exe"
-  File /nonfatal "..\config.json"
+  ; Whole app directory (exe + deps + CEF runtime)
+  File /r "..\dist\CountdownDesktop\*.*"
 
-  ; Create shortcuts
+  ; Shortcuts
   CreateDirectory "$SMPROGRAMS\${PRODUCT_NAME}"
-  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\Countdown Desktop.lnk" "$INSTDIR\countdown-desktop.exe"
-  CreateShortCut "$DESKTOP\Countdown Desktop.lnk" "$INSTDIR\countdown-desktop.exe"
+  CreateShortCut "$SMPROGRAMS\${PRODUCT_NAME}\Countdown Desktop.lnk" "$INSTDIR\CountdownDesktop.exe"
+  CreateShortCut "$DESKTOP\Countdown Desktop.lnk" "$INSTDIR\CountdownDesktop.exe"
 
-  ; Auto-start with Windows
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCT_NAME}" '"$INSTDIR\countdown-desktop.exe"'
+  ; Auto start on login
+  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCT_NAME}" '"$INSTDIR\CountdownDesktop.exe"'
 
-  ; Registry for uninstall
+  ; Uninstall info
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayName" "${PRODUCT_NAME}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
-  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayIcon" '"$INSTDIR\countdown-desktop.exe"'
+  WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayIcon" '"$INSTDIR\CountdownDesktop.exe"'
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "DisplayVersion" "${PRODUCT_VERSION}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
   WriteRegStr HKLM "${PRODUCT_UNINST_KEY}" "URLInfoAbout" "${PRODUCT_WEB_SITE}"
 
-  ; Size estimate
   ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
   IntFmt $0 "0x%08X" $0
   WriteRegDWORD HKLM "${PRODUCT_UNINST_KEY}" "EstimatedSize" "$0"
 
-  ; App Paths
-  WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\countdown-desktop.exe"
+  WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "" "$INSTDIR\CountdownDesktop.exe"
   WriteRegStr HKLM "${PRODUCT_DIR_REGKEY}" "Path" "$INSTDIR"
 
-  ; Create uninstaller
   WriteUninstaller "$INSTDIR\uninstall.exe"
 SectionEnd
 
 Section "Uninstall"
-  ; Remove shortcuts
   Delete "$SMPROGRAMS\${PRODUCT_NAME}\Countdown Desktop.lnk"
   RMDir "$SMPROGRAMS\${PRODUCT_NAME}"
   Delete "$DESKTOP\Countdown Desktop.lnk"
 
-  ; Remove auto-start
   DeleteRegValue HKLM "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCT_NAME}"
 
-  ; Remove files
-  Delete "$INSTDIR\countdown-desktop.exe"
-  Delete "$INSTDIR\config.json"
-  Delete "$INSTDIR\uninstall.exe"
-  RMDir "$INSTDIR"
+  RMDir /r "$INSTDIR"
 
-  ; Remove registry
   DeleteRegKey HKLM "${PRODUCT_UNINST_KEY}"
   DeleteRegKey HKLM "${PRODUCT_DIR_REGKEY}"
 SectionEnd
