@@ -1,180 +1,187 @@
 # -*- coding: utf-8 -*-
-"""Countdown Desktop 入口（Python + CEF 自带 Chromium）
+"""主程序：托盘图标 + 设置界面 + 空闲检测 + 播放器子进程管理。
 
-用法:
-  countdown-desktop.exe                 # 正常启动（托盘）
-  countdown-desktop.exe --test-wallpaper   # 壁纸 25s 自动退出
-  countdown-desktop.exe --test-screensaver # 屏保 15s 自动退出
-  countdown-desktop.exe --test-settings    # 设置窗口 15s 自动关闭
-  countdown-desktop.exe --test-standalone  # 独立 CEF 窗口（调试渲染）
+进程模型（参考 Lively）：
+  主进程(本文件) ── 托盘/设置/空闲检测
+    ├─ player wallpaper  （壁纸，常驻，嵌入桌面）
+    └─ player screensaver（屏保，空闲触发，输入即退）
 """
-import ctypes
 import logging
 import os
+import subprocess
 import sys
-
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import QApplication
-
-from . import desktop
-from .cef import CEFEngine
-from .config import load as load_config, save as save_config
-from .screensaver import ScreensaverEngine, idle_seconds
-from .settings import SettingsDialog
-from .tray import TrayIcon
-from .wallpaper import WallpaperEngine
-
-APP_VERSION = "2.0.0.0"
 
 log = logging.getLogger("main")
 
 
-def setup_logging():
-    try:
-        if getattr(sys, "frozen", False):
-            exe_dir = os.path.dirname(sys.executable)
-        else:
-            exe_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        logging.basicConfig(
-            filename=os.path.join(exe_dir, "log.txt"),
-            level=logging.INFO,
-            format="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-            encoding="utf-8",
-        )
-    except Exception:
-        logging.basicConfig(level=logging.INFO, format="%(message)s")
-    console = logging.StreamHandler()
-    console.setLevel(logging.INFO)
-    logging.getLogger().addHandler(console)
-
-
-def single_instance() -> bool:
-    kernel32 = ctypes.windll.kernel32
-    mutex = kernel32.CreateMutexW(None, False, "CountdownDesktop_SingleInstance")
-    return bool(mutex)
-
-
-def run_test_mode(mode, cfg, wp, ss, app):
-    if mode == "wallpaper":
-        cfg["wallpaper_enabled"] = True
-        ok = wp.start()
-        log.info("TEST wallpaper start -> %s", ok)
-        QTimer.singleShot(25000, app.quit)
-    elif mode == "screensaver":
-        ok = ss.start()
-        log.info("TEST screensaver start -> %s", ok)
-        QTimer.singleShot(15000, app.quit)
-    elif mode == "settings":
-        dlg = SettingsDialog(cfg)
-        dlg.show()
-        QTimer.singleShot(15000, dlg.close)
-        dlg.exec()
-        return
-    elif mode == "standalone":
-        w, h = desktop.get_screen_size()
-        cef = CEFEngine()
-        ok = cef.start_screensaver(cfg.get("screensaver_url",
-                                           "https://zztool.free.nf/countdown"),
-                                   w, h)
-        log.info("TEST standalone start -> %s", ok)
-        QTimer.singleShot(20000, app.quit)
-
-
-def main():
-    desktop.set_process_dpi_awareness()  # 必须在任何窗口创建前
-    setup_logging()
-    log.info("Countdown Desktop v%s starting (args=%s)", APP_VERSION, sys.argv[1:])
-
-    if not single_instance():
-        log.info("another instance is running, exit")
-        return
-
-    test_mode = None
-    for a in sys.argv[1:]:
-        if a in ("--test-wallpaper", "--test-screensaver", "--test-settings",
-                 "--test-standalone"):
-            test_mode = a[len("--test-"):]
-
-    cfg = load_config()
-    log.info("config: wp=%s ss=%s timeout=%ss",
-             cfg["wallpaper_enabled"], cfg["screensaver_enabled"],
-             cfg["screensaver_time"])
-
-    app = QApplication(sys.argv)
-    app.setQuitOnLastWindowClosed(False)  # 托盘应用常驻
-
-    wp = WallpaperEngine(cfg)
-    ss = ScreensaverEngine(cfg)
-
-    if test_mode:
-        run_test_mode(test_mode, cfg, wp, ss, app)
-        app.exec()
-        return
-
-    tray = TrayIcon(cfg)
-    tray.toggled_wallpaper.connect(lambda: toggle_wallpaper(cfg, wp, tray))
-    tray.toggled_screensaver.connect(lambda: toggle_screensaver(cfg, ss, tray))
-    tray.open_settings.connect(lambda: open_settings(cfg, wp, ss))
-    tray.exit_app.connect(lambda: exit_app(wp, ss, tray, app))
-
-    if cfg["wallpaper_enabled"]:
-        wp.start()
-
-    idle_timer = QTimer()
-    idle_timer.setInterval(5000)
-    idle_timer.timeout.connect(lambda: check_idle(cfg, ss))
-    idle_timer.start()
-
-    log.info("entering main loop")
-    app.exec()
-    log.info("app exited")
-
-
-def toggle_wallpaper(cfg, wp, tray):
-    cfg["wallpaper_enabled"] = not cfg["wallpaper_enabled"]
-    save_config(cfg)
-    if cfg["wallpaper_enabled"]:
-        wp.start()
-    else:
-        wp.stop()
-    tray.sync_checkmarks()
-
-
-def toggle_screensaver(cfg, ss, tray):
-    cfg["screensaver_enabled"] = not cfg["screensaver_enabled"]
-    save_config(cfg)
-    tray.sync_checkmarks()
-
-
-def open_settings(cfg, wp, ss):
-    dlg = SettingsDialog(
-        cfg,
-        on_save=lambda c: (save_config(c),
-                           (wp.refresh() if c["wallpaper_enabled"] else wp.stop())),
-        on_test_wallpaper=lambda: wp.refresh(),
-        on_test_screensaver=lambda: ss.start(),
+def _setup_logging() -> None:
+    from . import config
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s [%(name)s] %(levelname)s %(message)s",
+        filename=os.path.join(config.config_dir(), "main.log"),
+        encoding="utf-8",
     )
-    dlg.show()
 
 
-def check_idle(cfg, ss):
-    if ss.is_running():
-        return
-    if not cfg.get("screensaver_enabled"):
-        return
-    if idle_seconds() >= cfg.get("screensaver_time", 600):
-        log.info("idle %ds, starting screensaver", idle_seconds())
-        ss.start()
+def _base_dir() -> str:
+    if getattr(sys, "frozen", False):
+        return os.path.dirname(sys.executable)
+    return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
-def exit_app(wp, ss, tray, app):
-    log.info("exit requested")
-    wp.stop()
-    ss.stop()
-    tray.hide()
-    app.quit()
+def _spawn_cmd(mode: str) -> list:
+    if getattr(sys, "frozen", False):
+        return [sys.executable, "player", mode]
+    run_py = os.path.join(_base_dir(), "run.py")
+    return [sys.executable, run_py, "player", mode]
 
 
-if __name__ == "__main__":
-    main()
+class App:
+    def __init__(self):
+        from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
+        from PySide6.QtGui import QIcon
+        from PySide6.QtCore import QTimer, Qt
+        from . import config, win32
+
+        win32.set_process_dpi_awareness()
+        self.mutex = win32.create_single_instance_mutex("CountdownDesktop_Single")
+        if self.mutex is None:
+            log.info("another instance running, exit")
+            raise SystemExit(0)
+
+        self.cfg = config.load()
+        self.wallpaper_proc = None
+        self.screensaver_proc = None
+        self.settings_dialog = None
+
+        self.qapp = QApplication(sys.argv)
+        self.qapp.setQuitOnLastWindowClosed(False)
+
+        icon_path = os.path.join(_base_dir(), "assets", "icon.ico")
+        if not os.path.exists(icon_path):
+            icon_path = ""
+        self.icon = QIcon(icon_path) if icon_path else self.qapp.style().standardIcon(
+            self.qapp.style().StandardPixmap.SP_ComputerIcon)
+
+        self.tray = QSystemTrayIcon(self.icon)
+        self.tray.setToolTip("Countdown Desktop")
+        self.menu = QMenu()
+        self.act_settings = self.menu.addAction("设置", self.open_settings)
+        self.act_startup = self.menu.addAction("开机自启", self.toggle_startup)
+        self.act_startup.setCheckable(True)
+        self.act_startup.setChecked(bool(self.cfg.get("run_at_startup")))
+        self.menu.addSeparator()
+        self.act_save = self.menu.addAction("立即启动屏保", self.start_screensaver)
+        self.act_refresh = self.menu.addAction("刷新壁纸", self.refresh_wallpaper)
+        self.menu.addSeparator()
+        self.menu.addAction("退出", self.quit)
+        self.tray.setContextMenu(self.menu)
+        self.tray.activated.connect(self._on_tray_activated)
+        self.tray.show()
+
+        # 空闲检测
+        self.timer = QTimer()
+        self.timer.timeout.connect(self._idle_tick)
+        self.timer.start(5000)
+
+        if self.cfg["wallpaper"]["enabled"]:
+            self.start_wallpaper()
+
+    # ---------------- 壁纸 ----------------
+    def start_wallpaper(self) -> None:
+        cmd = _spawn_cmd("wallpaper")
+        log.info("spawn wallpaper player: %s", cmd)
+        self.wallpaper_proc = subprocess.Popen(
+            cmd, creationflags=subprocess.CREATE_NO_WINDOW)
+
+    def stop_wallpaper(self) -> None:
+        if self.wallpaper_proc and self.wallpaper_proc.poll() is None:
+            self.wallpaper_proc.terminate()
+        self.wallpaper_proc = None
+
+    def refresh_wallpaper(self) -> None:
+        self.stop_wallpaper()
+        self.cfg = __import__("app.config", fromlist=["config"]).load()
+        if self.cfg["wallpaper"]["enabled"]:
+            self.start_wallpaper()
+
+    # ---------------- 屏保 ----------------
+    def start_screensaver(self) -> None:
+        if self.screensaver_proc and self.screensaver_proc.poll() is None:
+            return
+        if not self.cfg["screensaver"]["enabled"]:
+            return
+        cmd = _spawn_cmd("screensaver")
+        log.info("spawn screensaver player")
+        self.screensaver_proc = subprocess.Popen(
+            cmd, creationflags=subprocess.CREATE_NO_WINDOW)
+
+    def screensaver_active(self) -> bool:
+        return self.screensaver_proc is not None and self.screensaver_proc.poll() is None
+
+    def _idle_tick(self) -> None:
+        from . import win32
+        if not self.cfg["screensaver"]["enabled"]:
+            return
+        if self.screensaver_active():
+            return
+        try:
+            timeout = float(self.cfg["screensaver"]["timeout"])
+        except (TypeError, ValueError):
+            timeout = 600.0
+        if win32.last_input_idle_seconds() >= timeout:
+            log.info("idle %.0fs >= %.0fs, start screensaver",
+                     win32.last_input_idle_seconds(), timeout)
+            self.start_screensaver()
+
+    # ---------------- 托盘/设置 ----------------
+    def _on_tray_activated(self, reason):
+        from PySide6.QtWidgets import QSystemTrayIcon
+        if reason in (QSystemTrayIcon.ActivationReason.Trigger,
+                      QSystemTrayIcon.ActivationReason.DoubleClick):
+            self.open_settings()
+
+    def toggle_startup(self) -> None:
+        from . import win32, config
+        enable = self.act_startup.isChecked()
+        exe = sys.executable if getattr(sys, "frozen", False) else os.path.abspath(
+            os.path.join(_base_dir(), "run.py"))
+        try:
+            win32.set_autostart(enable, exe)
+        except OSError:
+            log.exception("set_autostart failed")
+        self.cfg["run_at_startup"] = enable
+        config.save(self.cfg)
+
+    def open_settings(self) -> None:
+        from .settings import SettingsDialog
+        if self.settings_dialog is None or not self.settings_dialog.isVisible():
+            self.settings_dialog = SettingsDialog(self)
+        self.settings_dialog.show()
+        self.settings_dialog.raise_()
+        self.settings_dialog.activateWindow()
+
+    def restart_wallplayer_if_needed(self, changed: bool) -> None:
+        if changed:
+            self.stop_wallpaper()
+            if self.cfg["wallpaper"]["enabled"]:
+                self.start_wallpaper()
+
+    def quit(self) -> None:
+        log.info("quit")
+        self.stop_wallpaper()
+        if self.screensaver_active():
+            self.screensaver_proc.terminate()
+        self.tray.hide()
+        self.qapp.quit()
+
+    def exec_(self) -> int:
+        return self.qapp.exec()
+
+
+def run() -> int:
+    _setup_logging()
+    log.info("=== main start, pid=%d ===", os.getpid())
+    app = App()
+    return app.exec_()

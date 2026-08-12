@@ -1,127 +1,141 @@
-# HANDOFF.md — Countdown Desktop 项目交接文档
+# HANDOFF.md — Countdown Desktop 交接文档
 
-> 最后更新: 2026-08-12（v2.0.0.0 Python + CEF 重写）
+> 最后更新: 2026-08-12（v3.0.0.0，Python + WebView2 重写）
 
-## 项目概述
+## 一、需求（用户原始要求）
 
-Windows 动态壁纸/屏保：网页壁纸（CEF + WorkerW 嵌入）+ 网页屏保（CEF 全屏）。
-Python 3.13 + PySide6（仅 QtWidgets）+ 自编译 CEF 渲染进程。
+1. Windows 动态壁纸软件，借鉴 lively（rocksdanister/lively）源码的壁纸嵌入实现。
+2. 项目目录 `D:\countdown-desktop`；仓库 `tgcz2011/countdown-desktop`（旧内容完全失败，清空重做）。
+3. 网页设为**壁纸**、**屏保**，两者**分开设置、可修改**；默认 URL 均为 `https://zztool.free.nf/countdown`。
+4. 屏保默认时长 600s；**不用系统屏保，自写全屏窗口**。
+5. NSIS 或 Inno Setup 安装包；**任意 Win10/11 效果一致**（渲染引擎统一为系统 WebView2/Chromium）。
+6. 托盘图标调起设置界面，界面不需高级。
+7. 语言在 go/rust/python 中选（采用 python + PySide6，用户推荐）。
+8. 版本号 `a.b.c.d`（d 小改动、c 小添加、b 大改、a 大添加），去掉点后严格递增；每次更新必须同步更新 README 与 HANDOFF。
+9. release 走 GitHub Actions。
 
-## 版本历史
+## 二、版本历史
 
-- **v1.x（Go 版，已废弃）**：Go + WebView2，多轮修复后仍存在嵌入渲染问题，按用户要求重写
-- **v2.0.0.0（Python + CEF）**：当前版本。CEF 独立进程渲染，与 Lively 同构
-
-## 环境与工具链
-
-| 工具 | 位置 | 用途 |
+| 版本 | 技术 | 结论 |
 |------|------|------|
-| Python 3.13 | AutoClaw 自带 `D:\Program Files\AutoClaw\resources\python\python.exe` | 主程序 |
-| PySide6 6.11 | pip | 托盘/设置（QtWidgets，**不含** QtWebEngine） |
-| PyInstaller | pip | 打包 |
-| w64devkit 2.9.1 | `third_party/w64devkit/` | MinGW 编译 helper |
-| CEF 3.2704.1414 | `third_party/cef_binary_*/` | Chromium 内核 |
-| NSIS 3.12 | `C:\Program Files (x86)\NSIS` | 安装包 |
-| 清华 pip 源 | `https://pypi.tuna.tsinghua.edu.cn/simple` | 国内加速 |
+| v1.x | Go + WebView2 | 失败：嵌入渲染/COM 生命周期一连串坑，废弃 |
+| v2.0.0.x | Python + 自编译 CEF helper | CI 能过，但 QtWebEngine 路线曾失败、本机壁纸屏幕显示未验证，整体废弃 |
+| **v3.0.0.0** | **Python + PySide6 + pywebview(WebView2)** | **当前版本，本机全链路验证通过** |
 
-## 架构
+## 三、架构
 
 ```
-Python 主程序 (CountdownDesktop.exe)
-  ├── QSystemTrayIcon（托盘）
-  ├── SettingsDialog（设置）
-  ├── ScreensaverEngine → CEFEngine → cef_helper.exe（全屏置顶窗口）
-  └── WallpaperEngine → CEFEngine → cef_helper.exe（WorkerW 嵌入）
-        └── desktop.py: 0x052C(0xD,0x1) → 找壁纸 WorkerW → WS_CHILD → SetParent → 恢复
+CountdownDesktop.exe（主进程）
+  ├─ QSystemTrayIcon（单击=设置；菜单：设置/立即启动屏保/刷新壁纸/开机自启/退出）
+  ├─ QTimer 5s 空闲检测（GetLastInputInfo）→ 超时 spawn 屏保播放器
+  └─ 启动时 spawn 壁纸播放器
+run.py player wallpaper   → pywebview 窗口 → WorkerW/Progman 嵌入（Lively 同构）
+run.py player screensaver → pywebview 窗口 → 全屏 TOPMOST + 隐藏任务栏/光标 + 输入即退
+配置：%APPDATA%\CountdownDesktop\config.json
+日志：%APPDATA%\CountdownDesktop\{main,player-wallpaper,player-screensaver}.log
 ```
 
-### cef_helper.exe（C++）
+壁纸嵌入序列（app/win32.py，继承自旧版血泪史并复验）：
+1. `SendMessageTimeout(Progman, 0x052C, 0xD, 0x1)`（**0,0 无效**）
+2. 宿主定位：含 `SHELLDLL_DefView` 的顶层 WorkerW 的**下一个 WorkerW 兄弟**；
+   DefView 直接在 Progman 下或 Progman 带 `WS_EX_NOREDIRECTIONBITMAP`（Win11 raised desktop）时宿主=Progman，壁纸窗口加 `WS_EX_LAYERED + alpha=255`
+3. 去 `WS_POPUP/OVERLAPPED`、加 `WS_CHILD|WS_VISIBLE`（**SetParent 不自动加 WS_CHILD**）
+4. `SetParent(host)` → `SetWindowPos(HWND_BOTTOM, 虚拟全屏)` → `ShowWindow(SW_SHOWNA)`
+5. 窗口操作与创建同线程；`SetWindowLongPtrW` 的值要转**有符号 32 位**（否则 ctypes OverflowError）
 
-- 独立进程渲染（Lively 架构：播放器进程 + 主程序控制）
-- 参数：`--url --width --height --x --y [--visible]`
-- stdout 输出 `HWND:<hex>` 和 `LOADED:<code>`
-- 窗口默认**最小化+屏幕外**创建（壁纸嵌入流程），`--visible` 直接显示（屏保）
-- 自定义消息循环：PeekMessage/DispatchMessage + CefDoMessageLoopWork + 500ms NotifyMoveOrResizeStarted
-- 编译：`python third_party/build_cef_helper.py`（下载 CEF + MinGW → gendef/dlltool 生成导入库 → 逐文件编译 140 个 .cc → 链接）
-- **GCC 16 兼容**：需要 `-fpermissive` + `-include cstring` + 自写 `cef_atomicops_x86_gcc.h`（minimal 包缺 GCC 头）
+## 四、踩过的错误 / 经验（含旧版继承）
 
-### 壁纸嵌入流程（Lively 同构，关键！）
+### 渲染引擎选型（最重要）
+1. **QtWebEngine reparent 后渲染停止**：Qt6 把 Chromium 内容渲染到独立 `Chrome_WidgetWin_0` 顶层窗口，嵌入后容器空白。v2 因此弃用；v3 用 Qt 6.11 再次验证仍然如此（PrintWindow 容器空白、Chrome_WidgetWin_0 仍是顶层窗口）。**结论：QtWebEngine 永远不能用于嵌入壁纸**。
+2. **pywebview edgechromium（WebView2）SetParent 后渲染正常**：WebView2 控件（`Chrome_WidgetWin_1` 等）是 pywebview 窗口的**子窗口**，随父窗口一起被嵌入/置顶。已用 `PrintWindow(hwnd, dc, PW_RENDERFULLCONTENT=2)` 截图实证网页倒计时画面在桌面壁纸层内。
+3. 开发机（Windows Server 2022 云桌面）`ImageGrab.grab` 抓不到壁纸层内容，**验证一律用 `tools/capture.py`（PrintWindow PW_RENDERFULLCONTENT）抓宿主窗口**，别用全屏截图下结论。
 
-1. 检测 raised desktop（Progman 是否 WS_EX_NOREDIRECTIONBITMAP）
-2. `SendMessageTimeout(progman, 0x052C, 0xD, 0x1)`（**必须 0xD/0x1**，0,0 无效）
-3. 找含 SHELLDLL_DefView 的 WorkerW → **取其下一个 WorkerW 兄弟作为壁纸宿主**（Lively: `FindWindowEx(NULL, tophandle, "WorkerW")`）——**不是 DefView 所在 WorkerW！**
-4. helper 窗口：WS_CHILD（手动设！SetParent 不加）→ SetParent(壁纸WorkerW) → SetWindowPos(HWND_BOTTOM, 全屏) → ShowWindow 恢复
-5. 嵌入后重发 0x052C（RefreshDesktop）
-6. 窗口操作必须在 GUI 线程（Python 主线程即是）
+### Win32 嵌入
+4. 0x052C 必须 `0xD,0x1`；壁纸宿主是 DefView WorkerW 的下一个兄弟，**不是 DefView 所在那个**。
+5. `SetParent` 前手动 `WS_CHILD`；raised desktop 要 `WS_EX_LAYERED+SetLayeredWindowAttributes(255)`，否则不绘制。
+6. ctypes：`SetWindowLongPtrW` 样式值需 to_signed32；`restype/argtypes` 别写反（曾把 argtypes 写成 restype 直接 TypeError）。
 
-### 屏保
+### 打包/安装包
+7. PyInstaller 6.x：`PYZ(a.pure)`（无 `a.zlib_data` 属性）。
+8. 本机 Inno Setup 装在 `C:\Program Files\Inno Setup 7\ISCC.exe`（不在 x86/6 常规路径，Test-Path 要全找）；CI 的 windows-latest 自带 Inno 6（路径 `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`）。
+9. iss 脚本**纯 ASCII**（中文注释/描述易出编码问题）；界面语言用 `ChineseSimplified.isl`。
+10. 任意 Win10 兼容：安装包内置微软官方 `MicrosoftEdgeWebview2Setup.exe`（Bootstrapper，~1.7MB， Evergreen 在线安装），安装时检测注册表 `{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}` 的 `pv`，缺失则 `/silent /install`。Win11 预装 WebView2 无需触发。
+11. 免管理员：`PrivilegesRequired=lowest`（用户目录安装），开机自启用 HKCU Run（卸载 `uninsdeletevalue` 清理）。
+12. WebView2 用户数据目录（`%APPDATA%\<app>\*.WebView2`）不要打包/提交。
 
-- helper `--visible` 创建 → SetWindowPos(HWND_TOPMOST) → 输入监听（GetLastInputInfo/GetAsyncKeyState 100ms 轮询）→ 任意输入退出
-- 空闲检测：5s 轮询，idle >= timeout 启动
+### 旧版教训（仍适用，保留）
+13. DPI：创建窗口前 `SetProcessDpiAwarenessContext(PER_MONITOR_V2)`，否则窗口缩放。
+14. `GetLastInputInfo` 的 GetTickCount 32 位回绕要掩码处理。
+15. NSIS 相关坑已随 NSIS 脚本一起废弃（v3 用 Inno）。
+16. CI 里所有本地手动补丁必须进仓库/构建脚本，否则 CI 复现失败（v2.0.0.1 教训）。
 
-## 关键踩坑（血泪史）
+## 五、项目结构
 
-### Go 版（v1.x）教训（已废弃但值得记录）
-1. GetTickCount 误放 user32 → 5s panic
-2. WebView2Loader.dll 不在 System32，需随包分发
-3. Go GC 回收 COM 回调对象 → 死锁（需全局持有）
-4. 缺 AddRef → controller 悬空崩溃（0xffffffffffffffff）
-5. WebView2 需消息泵（GetMessage(0)）+ 创建线程绑定（opCh 调度）
-6. SetParent 跨线程静默失败；SetParent 不改 WS_CHILD（必须手动设）
-7. DPI 未声明 → 窗口被缩放 1/4（SetProcessDpiAwarenessContext PerMonitorV2）
-8. 0x052C 必须 0xD/0x1
-9. NSIS 相对路径是脚本目录（需 ..\）；config.json 用 /nonfatal；choco 装的 NSIS 不在 PATH（用完整路径）；OutFile 相对脚本目录
-10. 图标：NSIS 拒绝手写 ICO（用 System.Drawing 生成或去掉 MUI_ICON）
+```
+countdown-desktop/
+├── run.py                  入口（无参=主程序；player <mode>=播放器）
+├── app/
+│   ├── main.py             主进程：托盘/空闲检测/子进程管理/单实例 mutex
+│   ├── player.py           播放器：壁纸嵌入/屏保全屏/输入退出/隐藏任务栏
+│   ├── win32.py            Win32 封装（嵌入/全屏/空闲/自启/mutex/DPI）
+│   ├── settings.py         设置对话框（壁纸与屏保分开设）
+│   ├── config.py           config.json 读写（默认 URL + 600s）
+│   └── version.py          版本号（唯一来源之一，供 build.ps1 读取）
+├── assets/icon.ico
+├── installer/
+│   ├── setup.iss           Inno 安装脚本（内置 WebView2 bootstrapper 检测安装）
+│   └── MicrosoftEdgeWebview2Setup.exe
+├── tools/capture.py        开发验证截图（PrintWindow fullcontent）
+├── build.ps1               本地一键构建
+├── CountdownDesktop.spec   PyInstaller 规格
+├── requirements.txt        PySide6 + pywebview
+├── .github/workflows/release.yml   tag→构建→Inno→Release
+├── README.md / HANDOFF.md  （每次更新强制同步）
+```
 
-### Python + CEF 版（v2.x）
-1. **cefpython3 只支持 Python ≤3.7**（死路）→ 自编译 CEF helper
-2. **QtWebEngine（PySide6）reparent 后渲染停止**：Qt 6 把 Chromium 内容渲染到独立 Chrome_WidgetWin_0 顶层窗口，嵌入后 Qt 管理冲突 → 弃用
-3. **PyQt5 QtWebEngine 在这台机器不渲染**（Chromium 87 太老 + Python 3.13 兼容）
-4. **CEF helper 消息循环必须 GetMessage/DispatchMessage**：只 CefDoMessageLoopWork 的话窗口 WM_PAINT 不处理 → 内容渲染了但屏幕不更新（PrintWindow 100% 非黑但屏幕黑）
-5. **CEF 最小化创建**：窗口隐藏/最小化时 Chromium 暂停渲染；恢复后需确保消息循环正常
-6. **MinGW 链接 MSVC .lib 不行**：gendef + dlltool 从 libcef.dll 生成 .dll.a
-7. **CEF minimal 包缺 GCC 原子操作头**（cef_atomicops_x86_gcc.h）：自写（__sync 内建）+ CPU 特性结构
-8. **USING_CEF_SHARED 宏**：libcef_dll wrapper 头文件条件编译，缺了类全未声明
-9. **NSIS 中文注释报 Bad text encoding**：脚本必须纯 ASCII
-10. **PyInstaller 排除 QtWebEngine**：--exclude-module PySide6.QtWebEngine*（省 ~300MB）
+## 六、toolchain
 
-## 本机（开发机）验证结论
+| 工具 | 位置/版本 | 说明 |
+|------|-----------|------|
+| Python | 开发机 3.14（venv 于 `.venv`）；CI 用 3.12 | pywebview 官方 wheel 覆盖 3.12；3.14 本机实测可用 |
+| PySide6 | 6.11 | 仅 Widgets/Gui/Core（托盘+设置），**不用 QtWebEngine** |
+| pywebview | 6.2 | EdgeChromium 后端 |
+| PyInstaller | 6.22 | onedir |
+| Inno Setup | 本机 7（`C:\Program Files\Inno Setup 7`）；CI 6 | ISCC 编译 |
+| git/gh | 已登录 tgcz2011 | 推送与 release |
+| GitHub Actions | windows-latest | 自动构建发布 |
+| pip 源 | 清华 | 国内加速 |
 
-- 开发机：Windows Server 2022 Datacenter（无 DWM 合成，疑似无影云桌面环境，桌面窗口类含 "CombinedDesktop"）
-- **已验证**：CEF 顶层窗口渲染正常（屏保完整显示"距离高考还有"）；壁纸嵌入链路完整（PrintWindow 验证内容 100% 渲染、parent/Z-order/可见性全部正确）
-- **本机未验证**：壁纸嵌入的**屏幕显示**（子窗口内容在本机桌面呈现层不合成——云桌面环境限制；PrintWindow 证明渲染本身正常）
-- **客户端 Win10/11（有 DWM）**：与 Lively 完全同构的机制，应在客户端正常——**需用户在真实客户端验证**
+## 七、构建与发布
 
-## 构建与发布
-
-```bash
-# 本地构建 helper（首次）
-python third_party/build_cef_helper.py
-
-# 打包
-python -m PyInstaller --noconfirm --onedir --windowed --name CountdownDesktop run.py
-# 复制 third_party/cef_helper/ 运行时到 dist/CountdownDesktop/
-
-# 安装包
-& "C:\Program Files (x86)\NSIS\makensis.exe" installer\setup.nsi
+```powershell
+# 本地
+.\build.ps1 -Version 3.0.0.1        # venv+pip+PyInstaller+ISCC 一条龙
 
 # 发布
-git tag vX.X.X.X && git push origin vX.X.X.X   # Actions 自动构建 + Release
+git add -A; git commit -m "..."
+git tag v3.0.0.1; git push origin main v3.0.0.1   # Actions 自动 Release
 ```
 
-## 版本规则
+## 八、版本规则
 
-a.b.c.d：d=修复，c=小功能，b=重要功能，a=架构变更。每次改动（含文档/CI）必须升版本号并同步 README/HANDOFF。
+a=大添加 b=大改 c=小添加 d=小改动；去掉 `.` 后数值必须严格大于上一版本。当前最高 tag：v3.0.0.0（历史 v2.0.0.1 已废弃但保留 tag）。
 
-## 已知限制
+## 九、已知限制 / 待办
 
-- 壁纸嵌入屏幕显示需客户端 Win10/11 验证（本机为云桌面环境）
-- 安装包较大（~65MB 压缩 / 225MB 安装，Chromium 体积）
-- 多显示器未专门处理
-- helper 无 IPC（除 stdout HWND）；停止用 TerminateProcess
+1. explorer 重启后壁纸需手动「刷新壁纸」（未做自动监控恢复；lively 旧版也没有）。
+2. 多显示器按虚拟屏幕整块铺满（span 模式），未做每屏独立窗口。
+3. 屏保触发检测粒度 5s；启动后 1s 内输入不触发退出（防误触）。
+4. WebView2 版本随系统更新，极老 Win10 需联网装 runtime（安装包装）。
+5. 开发机为云桌面，`ImageGrab` 抓屏不含壁纸层；真机客户端（Win10/11 常规环境）显示已按 Lively 同构机制实现，建议真机复验。
 
-### v2.0.0.1 发布记录
-- 2026-08-12 v2.0.0.0 推送后 CI 失败：**本地手写的 GCC 原子操作头（cef_atomicops_x86_gcc.h）没进 git**
-- 修复：把头文件生成逻辑写进 `third_party/build_cef_helper.py`（ensure_gcc_atomicops_header），CI 自动生成
-- v2.0.0.1 CI 成功（9m19s）：下载 CEF 104MB + MinGW 61MB → 编译 helper → PyInstaller → NSIS → Release
-- **经验：所有本地手动补丁必须进构建脚本或仓库，否则 CI 必然复现失败**
+## 十、验证方法备忘
+
+```powershell
+# 抓桌面宿主窗口（看壁纸是否在壁纸层渲染）
+.\.venv\Scripts\python.exe tools\capture.py out.png host
+# 全屏截图（屏保验证可用，壁纸层在云桌面抓不到）
+.\.venv\Scripts\python.exe tools\capture.py out.png screen
+```
+
+屏保退出验证：`keybd_event` 模拟按键后确认 player-screensaver 进程退出。
