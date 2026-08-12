@@ -119,3 +119,9 @@ a.b.c.d：d=修复，c=小功能，b=重要功能，a=架构变更。每次改�
 - 安装包较大（~65MB 压缩 / 225MB 安装，Chromium 体积）
 - 多显示器未专门处理
 - helper 无 IPC（除 stdout HWND）；停止用 TerminateProcess
+
+### v2.0.0.1 发布记录
+- 2026-08-12 v2.0.0.0 推送后 CI 失败：**本地手写的 GCC 原子操作头（cef_atomicops_x86_gcc.h）没进 git**
+- 修复：把头文件生成逻辑写进 `third_party/build_cef_helper.py`（ensure_gcc_atomicops_header），CI 自动生成
+- v2.0.0.1 CI 成功（9m19s）：下载 CEF 104MB + MinGW 61MB → 编译 helper → PyInstaller → NSIS → Release
+- **经验：所有本地手动补丁必须进构建脚本或仓库，否则 CI 必然复现失败**
