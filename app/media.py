@@ -19,8 +19,7 @@ IMAGE_EXT = (".png", ".jpg", ".jpeg", ".bmp", ".webp", ".svg", ".ico")
 ANIM_EXT = (".gif",)
 
 _PAGE = """<!DOCTYPE html><html><head><meta charset="utf-8"><style>
-html,body{{margin:0;padding:0;width:100vw;height:100vh;background:#000;overflow:hidden}}
-video,img{{position:fixed;left:0;top:0;width:100vw;height:100vh;object-fit:cover}}
+{style}
 </style></head><body>{body}</body></html>"""
 
 
@@ -36,15 +35,31 @@ def guess_kind(source: str) -> str:
     return "page"
 
 
-def build_html(kind: str, src: str) -> str:
-    esc = src.replace("&", "&amp;").replace('"', "&quot;")
+def build_html(kind: str, src: str, fit: str = "cover", mute: bool = True,
+               loop: bool = True) -> str:
+    """生成视频/图片渲染页。
+
+    fit: cover=铺满裁剪 | contain=完整显示黑边 | fill=拉伸铺满
+    mute/loop 仅对视频生效；视频静音时可直接自动播放，不静音时配合
+    WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 的 autoplay 放行策略。
+    """
+    import html as _html
+    esc = _html.escape(src, quote=True)
+    object_fit = {"contain": "contain", "fill": "fill"}.get(fit, "cover")
+    bg = "#000"
+    style = ("html,body{{margin:0;padding:0;width:100vw;height:100vh;"
+             "background:%s;overflow:hidden}}"
+             "video,img{{position:fixed;left:0;top:0;width:100vw;height:100vh;"
+             "object-fit:%s}}" % (bg, object_fit))
     if kind == "video":
-        body = ('<video src="%s" autoplay loop muted playsinline '
+        attrs = "autoplay loop" if loop else "autoplay"
+        attrs += " muted" if mute else ""
+        body = ('<video src="%s" %s playsinline '
                 'onerror="document.body.innerHTML=\'<div style=color:#888;font:20px sans-serif;padding:40px>video load failed</div>\'">'
-                '</video>') % esc
+                '</video>') % (esc, attrs)
     else:  # image / anim
         body = '<img src="%s" alt="">' % esc
-    return _PAGE.format(body=body)
+    return _PAGE.format(style=style, body=body)
 
 
 class _FileHandler(BaseHTTPRequestHandler):

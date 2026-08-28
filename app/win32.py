@@ -11,6 +11,7 @@
 5. SetWindowLongPtrW 的样式值需转有符号 32 位整数，否则 ctypes 溢出
 """
 import ctypes
+import os
 from ctypes import wintypes
 
 user32 = ctypes.windll.user32
@@ -25,6 +26,9 @@ user32.GetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.SetWindowLongPtrW.restype = ctypes.c_long
 user32.SetWindowLongPtrW.argtypes = [wintypes.HWND, ctypes.c_int, ctypes.c_long]
 user32.SendMessageTimeoutW.restype = ctypes.c_long
+user32.SystemParametersInfoW.restype = wintypes.BOOL
+user32.SystemParametersInfoW.argtypes = [wintypes.UINT, wintypes.UINT, wintypes.LPVOID,
+                                         wintypes.DWORD]
 
 GWL_STYLE = -16
 GWL_EXSTYLE = -20
@@ -52,6 +56,12 @@ SM_YVIRTUALSCREEN = 77
 SM_CXVIRTUALSCREEN = 78
 SM_CYVIRTUALSCREEN = 79
 WM_052C = 0x052C
+
+SPI_GETDESKWALLPAPER = 0x0073
+SPI_SETDESKWALLPAPER = 0x0014
+SPIF_UPDATEINIFILE = 0x01
+SPIF_SENDCHANGE = 0x02
+MAX_PATH_WALLPAPER = 520  # 长路径余量（宽字符）
 
 
 def to_signed32(v: int) -> int:
@@ -211,6 +221,51 @@ def set_autostart(enable: bool, exe_path: str) -> None:
                 pass
     finally:
         winreg.CloseKey(key)
+
+
+def get_desktop_wallpaper() -> str:
+    """读当前桌面壁纸文件路径（SPI_GETDESKWALLPAPER）。
+
+    返回空串表示获取失败。注册表可能指向 TranscodedWallpaper（无扩展名的
+    JPEG），SPI 返回的就是它，原样存回即可。
+    """
+    buf = ctypes.create_unicode_buffer(MAX_PATH_WALLPAPER)
+    ok = user32.SystemParametersInfoW(SPI_GETDESKWALLPAPER, MAX_PATH_WALLPAPER,
+                                      buf, 0)
+    return buf.value if ok else ""
+
+
+def set_desktop_wallpaper(path: str) -> bool:
+    """强制 explorer 重设壁纸（SPI_SETDESKWALLPAPER）。
+
+    播放器退出后 explorer 不会自动重绘壁纸层（用户看到白屏），
+    重设一次即恢复。路径为空/文件不存在时返回 False（由调用方兜底）。
+    """
+    if not path:
+        return False
+    p = os.path.expandvars(path)
+    if not os.path.isfile(p):
+        # 不提前拦截：TranscodedWallpaper 可能被系统重建，交给 SPI 校验
+        log.warning("wallpaper file missing, still trying SPI_SET: %s", p)
+    ok = user32.SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, p,
+                                      SPIF_UPDATEINIFILE | SPIF_SENDCHANGE)
+    if not ok:
+        log.warning("SPI_SETDESKWALLPAPER failed (path=%s, err=%s)",
+                    p, kernel32.GetLastError())
+    return bool(ok)
+
+
+def refresh_desktop_wallpaper() -> bool:
+    """把当前壁纸原样重设一次，强制 explorer 重绘壁纸层。
+
+    本软件从不修改系统壁纸值（只叠加窗口），因此无需快照：
+    直接重设 SPI 当前值即可恢复显示，也不会回滚用户中途更换的壁纸。
+    """
+    cur = get_desktop_wallpaper()
+    if not cur:
+        log.warning("no current wallpaper to refresh")
+        return False
+    return set_desktop_wallpaper(cur)
 
 
 def create_single_instance_mutex(name: str):

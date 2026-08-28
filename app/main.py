@@ -30,6 +30,26 @@ def _base_dir() -> str:
     return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
+def _asset_path(name: str) -> str:
+    """定位打包资源（图标等）。
+
+    PyInstaller 6.x onedir：datas 在 _internal 下，仅存在于 _MEIPASS；
+    exe 同目录不再有 datas（5.x 及以前的老行为）。
+    开发态：仓库根/assets。
+    """
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", "")
+        if meipass:
+            p = os.path.join(meipass, "assets", name)
+            if os.path.exists(p):
+                return p
+        p = os.path.join(_base_dir(), "_internal", "assets", name)
+        if os.path.exists(p):
+            return p
+        return os.path.join(_base_dir(), "assets", name)
+    return os.path.join(_base_dir(), "assets", name)
+
+
 def _spawn_cmd(mode: str) -> list:
     if getattr(sys, "frozen", False):
         return [sys.executable, "player", mode]
@@ -58,10 +78,10 @@ class App:
         self.qapp = QApplication(sys.argv)
         self.qapp.setQuitOnLastWindowClosed(False)
 
-        icon_path = os.path.join(_base_dir(), "assets", "icon.ico")
+        icon_path = _asset_path("icon.ico")
         if not os.path.exists(icon_path):
             icon_path = ""
-        tray_path = os.path.join(_base_dir(), "assets", "icon-tray.ico")
+        tray_path = _asset_path("icon-tray.ico")
         if not os.path.exists(tray_path):
             tray_path = icon_path
         self.icon_colored = QIcon(icon_path) if icon_path else self.qapp.style().standardIcon(
@@ -125,7 +145,26 @@ class App:
     def stop_wallpaper(self) -> None:
         if self.wallpaper_proc and self.wallpaper_proc.poll() is None:
             self.wallpaper_proc.terminate()
+            try:
+                self.wallpaper_proc.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.wallpaper_proc.kill()
         self.wallpaper_proc = None
+
+    def _restore_wallpaper(self) -> None:
+        """退出/关壁纸后强制 explorer 重绘壁纸层（否则桌面白屏）。
+
+        本软件从不修改系统壁纸值（只叠加窗口），因此直接把当前壁纸
+        原样重设一次即可：不依赖快照（无跨进程配置同步问题），
+        也不会回滚用户中途更换的壁纸。terminate() 强杀播放器时
+        events.closed 不会触发，故由主进程负责重绘。
+        """
+        try:
+            from . import win32
+            if win32.refresh_desktop_wallpaper():
+                log.info("desktop wallpaper refreshed")
+        except Exception:
+            log.exception("refresh wallpaper failed")
 
     def refresh_wallpaper(self) -> None:
         self.stop_wallpaper()
@@ -199,13 +238,18 @@ class App:
 
     def restart_wallplayer_if_needed(self, changed: bool) -> None:
         if changed:
+            was_running = self.wallpaper_proc is not None
             self.stop_wallpaper()
             if self.cfg["wallpaper"]["enabled"]:
                 self.start_wallpaper()
+            elif was_running:
+                # 关闭壁纸（不退出软件）：立刻还原桌面壁纸
+                self._restore_wallpaper()
 
     def quit(self) -> None:
         log.info("quit")
         self.stop_wallpaper()
+        self._restore_wallpaper()
         if self.screensaver_active():
             self.screensaver_proc.terminate()
         self.tray.hide()

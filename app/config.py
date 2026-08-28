@@ -5,15 +5,26 @@ import os
 
 DEFAULT_URL = "https://zztool.free.nf/countdown"
 
+# 图片/视频画幅模式：cover=铺满裁剪 | contain=完整显示留黑边 | fill=拉伸铺满
+FIT_MODES = ("cover", "contain", "fill")
+FIT_LABELS = {"cover": "铺满全屏（裁剪）", "contain": "保留原内容（黑边）", "fill": "铺满全屏（拉伸）"}
+
 DEFAULTS = {
     "wallpaper": {
         "enabled": True,
         "url": DEFAULT_URL,
+        "fit": "cover",   # 仅对图片/视频源生效
+        "mute": True,     # 壁纸默认静音
     },
     "screensaver": {
         "enabled": True,
         "url": DEFAULT_URL,
         "timeout": 600,
+        "fit": "cover",
+        "mute": True,     # 屏保默认静音
+    },
+    "playback": {
+        "video_loop": True,   # 视频循环播放
     },
     "run_at_startup": False,
 }

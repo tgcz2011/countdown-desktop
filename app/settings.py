@@ -11,11 +11,11 @@ import logging
 import os
 
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtWidgets import (QCheckBox, QDialog, QFileDialog, QFormLayout,
-                               QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-                               QListWidget, QListWidgetItem, QPushButton,
-                               QSpinBox, QStackedWidget, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog,
+                               QFormLayout, QGroupBox, QHBoxLayout, QLabel,
+                               QLineEdit, QListWidget, QListWidgetItem,
+                               QPushButton, QSpinBox, QStackedWidget,
+                               QVBoxLayout, QWidget)
 
 log = logging.getLogger("settings")
 
@@ -52,7 +52,9 @@ class SettingsDialog(QDialog):
         self.setWindowTitle("Countdown Desktop 设置 v%s" % version.VERSION)
         self.resize(680, 460)
         self.setMinimumSize(560, 400)
-        self.setWindowFlags(self.windowFlags()
+        self.setWindowFlags((self.windowFlags()
+                             | Qt.WindowType.WindowSystemMenuHint
+                             | Qt.WindowType.WindowCloseButtonHint)
                             & ~Qt.WindowType.WindowContextHelpButtonHint)
 
         outer = QVBoxLayout(self)
@@ -129,6 +131,13 @@ class SettingsDialog(QDialog):
                 return
 
     # ---------------- 页面工厂 ----------------
+    def _make_fit_combo(self) -> QComboBox:
+        from . import config
+        combo = QComboBox()
+        for key in config.FIT_MODES:
+            combo.addItem(config.FIT_LABELS[key], key)
+        return combo
+
     def _make_wallpaper_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -146,6 +155,12 @@ class SettingsDialog(QDialog):
         self.btn_wall_file.clicked.connect(lambda: self._pick(self.txt_wall_url))
         row_wall.addWidget(self.btn_wall_file)
         form.addRow("壁纸源", row_wall)
+        self.cmb_wall_fit = self._make_fit_combo()
+        self.cmb_wall_fit.setToolTip("仅对图片/视频源生效；网页源铺满窗口")
+        form.addRow("画幅", self.cmb_wall_fit)
+        self.chk_wall_mute = QCheckBox("静音（网页与视频）")
+        self.chk_wall_mute.setToolTip("取消勾选则网页/视频开启声音")
+        form.addRow("声音", self.chk_wall_mute)
         layout.addWidget(grp)
 
         layout.addStretch()
@@ -172,6 +187,11 @@ class SettingsDialog(QDialog):
         self.spin_timeout.setRange(30, 86400)
         self.spin_timeout.setSuffix(" 秒")
         form.addRow("空闲触发时长", self.spin_timeout)
+        self.cmb_ss_fit = self._make_fit_combo()
+        self.cmb_ss_fit.setToolTip("仅对图片/视频源生效；网页源铺满窗口")
+        form.addRow("画幅", self.cmb_ss_fit)
+        self.chk_ss_mute = QCheckBox("静音（网页与视频）")
+        form.addRow("声音", self.chk_ss_mute)
         row_ss = QHBoxLayout()
         self.btn_test = QPushButton("立即测试屏保")
         self.btn_test.clicked.connect(lambda: self.app.start_screensaver())
@@ -192,6 +212,12 @@ class SettingsDialog(QDialog):
         self.chk_startup = QCheckBox("开机自启（写入注册表 HKCU，卸载自动清理）")
         form.addRow(self.chk_startup)
         layout.addWidget(grp)
+
+        grp_play = QGroupBox("播放")
+        form_p = QFormLayout(grp_play)
+        self.chk_video_loop = QCheckBox("视频循环播放（壁纸与屏保）")
+        form_p.addRow(self.chk_video_loop)
+        layout.addWidget(grp_play)
 
         layout.addStretch()
         return page
@@ -242,6 +268,13 @@ class SettingsDialog(QDialog):
             self.spin_timeout.setValue(int(cfg["screensaver"]["timeout"]))
         except (TypeError, ValueError):
             self.spin_timeout.setValue(600)
+        wall_fit = cfg["wallpaper"].get("fit", "cover")
+        self.cmb_wall_fit.setCurrentIndex(max(0, self.cmb_wall_fit.findData(wall_fit)))
+        ss_fit = cfg["screensaver"].get("fit", "cover")
+        self.cmb_ss_fit.setCurrentIndex(max(0, self.cmb_ss_fit.findData(ss_fit)))
+        self.chk_wall_mute.setChecked(bool(cfg["wallpaper"].get("mute", True)))
+        self.chk_ss_mute.setChecked(bool(cfg["screensaver"].get("mute", True)))
+        self.chk_video_loop.setChecked(bool(cfg.get("playback", {}).get("video_loop", True)))
         self.chk_startup.setChecked(bool(cfg.get("run_at_startup")))
 
     def save_all(self) -> bool:
@@ -250,19 +283,28 @@ class SettingsDialog(QDialog):
         cfg = self.app.cfg
         old_enabled = bool(cfg["wallpaper"]["enabled"])
         old_url = cfg["wallpaper"]["url"]
+        old_fit = cfg["wallpaper"].get("fit", "cover")
+        old_mute = bool(cfg["wallpaper"].get("mute", True))
 
         cfg["wallpaper"]["enabled"] = self.chk_wall.isChecked()
         cfg["wallpaper"]["url"] = _normalize_url(self.txt_wall_url.text())
+        cfg["wallpaper"]["fit"] = self.cmb_wall_fit.currentData() or "cover"
+        cfg["wallpaper"]["mute"] = self.chk_wall_mute.isChecked()
         cfg["screensaver"]["enabled"] = self.chk_ss.isChecked()
         cfg["screensaver"]["url"] = _normalize_url(self.txt_ss_url.text())
         cfg["screensaver"]["timeout"] = self.spin_timeout.value()
+        cfg["screensaver"]["fit"] = self.cmb_ss_fit.currentData() or "cover"
+        cfg["screensaver"]["mute"] = self.chk_ss_mute.isChecked()
+        cfg.setdefault("playback", {})["video_loop"] = self.chk_video_loop.isChecked()
         # 先同步自启（内部可能改 cfg["run_at_startup"]），再统一落盘一次
         self.app.set_autostart(self.chk_startup.isChecked())
         config.save(cfg)
         log.info("config saved")
 
         return (cfg["wallpaper"]["enabled"] != old_enabled
-                or cfg["wallpaper"]["url"] != old_url)
+                or cfg["wallpaper"]["url"] != old_url
+                or cfg["wallpaper"]["fit"] != old_fit
+                or cfg["wallpaper"]["mute"] != old_mute)
 
     # 兼容旧调用名
     load = load_all
