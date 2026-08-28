@@ -47,10 +47,12 @@ def build_html(kind: str, src: str, fit: str = "cover", mute: bool = True,
     esc = _html.escape(src, quote=True)
     object_fit = {"contain": "contain", "fill": "fill"}.get(fit, "cover")
     bg = "#000"
-    style = ("html,body{{margin:0;padding:0;width:100vw;height:100vh;"
-             "background:%s;overflow:hidden}}"
-             "video,img{{position:fixed;left:0;top:0;width:100vw;height:100vh;"
-             "object-fit:%s}}" % (bg, object_fit))
+    # 注意：这段用 % 格式化，CSS 花括号写单个；此前误用 {{ }} 导致样式非法被浏览器丢弃，
+    # 视频/图片失去铺满样式缩在左上角（网页源不走此内联模板不受影响）
+    style = ("html,body{margin:0;padding:0;width:100vw;height:100vh;"
+             "background:%s;overflow:hidden}"
+             "video,img{position:fixed;left:0;top:0;width:100vw;height:100vh;"
+             "object-fit:%s}" % (bg, object_fit))
     if kind == "video":
         attrs = "autoplay loop" if loop else "autoplay"
         attrs += " muted" if mute else ""
