@@ -27,6 +27,7 @@
 | **v3.1.0.1** | 同上 | 修复 v3.1.0.0 启动即崩：主题图标应用被误提前到托盘创建之前（self.tray 不存在 → AttributeError），且构造内仍残留旧名 self.icon 引用；两处修正，图标应用移到 tray.show() 之后（d 升）。教训：测试 Probe 桩绕过了真实 __init__ 顺序，已补 App 真实构造 e2e 测试 |
 | **v3.1.1.0** | 同上 | 五项新增/修复（c 升 + b 升）：① 退出/关壁纸后白屏修复——本软件从不改系统壁纸值，退出/停壁纸时把 SPI 当前壁纸原样重设一次强制 explorer 重绘（无快照、无跨进程同步、不回滚用户中途换的壁纸；主进程负责因 terminate 杀进程时 closed 不触发；本机实测 SPI_SET 同路径重设成功）；② 图片/视频画幅可调 cover/contain/fill（壁纸与屏保独立，object-fit 实现）；③ 网页/视频声音可选（默认静音；WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 合并式追加 autoplay 放行，静音时追加 --mute-audio 覆盖网页源）；④ 视频循环开关（通用页，默认开）；⑤ 设置×按钮显式启用（等同取消）。附带：PyInstaller 6 资源路径修复（_internal/_MEIPASS），frozen 托盘图标此前因此回退系统图标；media.build_html 改 html.escape |
 | **v3.1.1.1** | 同上 | 修复 v3.1.1.0 画幅模板 bug（d 升）：fit 样式段用 % 拼接却写了 .format 的 {{}} 转义，浏览器收到非法 CSS 整段丢弃，视频/图片失去铺满样式缩在左上角（网页源不走内联模板不受影响）；改为单花括号，并新增回归测试：禁止 {{ 漏入 HTML、逐 fit/kind 断言 object-fit 规则存在且合法 |
+| **v3.1.2.0** | 同上 | 关于页完善（c 升）：新增 GitHub 仓库/反馈链接、GPL-3.0 许可说明、Lively Wallpaper（rocksdanister）鸣谢；新增检查更新（GitHub Releases API，去点数值比较）+ 一键更新（下载安装包到 %TEMP%，批处理 taskkill 后 Inno /SILENT /RESTARTAPPLICATIONS 静默装并重启）+ 启动自动检查（仅提示不自动下载，可关）；新模块 app/update.py（QNetworkAccessManager 异步，信号驱动） |
 
 ## 三、架构
 

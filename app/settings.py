@@ -10,7 +10,7 @@
 import logging
 import os
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QUrl, QSize, Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog,
                                QFormLayout, QGroupBox, QHBoxLayout, QLabel,
                                QLineEdit, QListWidget, QListWidgetItem,
@@ -228,20 +228,147 @@ class SettingsDialog(QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
 
         from . import version
+        from .update import REPO_PAGE
+
         grp = QGroupBox("关于")
         form = QFormLayout(grp)
         for label, value in (("程序", "Countdown Desktop"),
                              ("版本", "v%s" % version.VERSION),
                              ("功能", "动态壁纸 + 屏幕保护（网页/视频/图片/动图）"),
-                             ("渲染", "pywebview + WebView2（Chromium）"),
-                             ("开源", "GPL-3.0")):
+                             ("渲染", "pywebview + WebView2（Chromium）")):
             text = QLabel(value)
             text.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
             form.addRow(label, text)
+        link_repo = QLabel('<a href="%s">GitHub 仓库（tgcz2011/countdown-desktop）</a>'
+                           % REPO_PAGE)
+        link_repo.setOpenExternalLinks(True)
+        form.addRow("源码", link_repo)
+        link_issue = QLabel('<a href="%s/issues">反馈问题 / 提交建议</a>' % REPO_PAGE)
+        link_issue.setOpenExternalLinks(True)
+        form.addRow("反馈", link_issue)
         layout.addWidget(grp)
+
+        # ---- 检查更新 ----
+        grp_upd = QGroupBox("更新")
+        v_upd = QVBoxLayout(grp_upd)
+        self.lbl_update = QLabel("点击「检查更新」查询 GitHub 最新版本")
+        self.lbl_update.setWordWrap(True)
+        v_upd.addWidget(self.lbl_update)
+        row_upd = QHBoxLayout()
+        self.btn_check_update = QPushButton("检查更新")
+        self.btn_check_update.clicked.connect(self._on_check_update)
+        row_upd.addWidget(self.btn_check_update)
+        self.btn_update_now = QPushButton("一键更新")
+        self.btn_update_now.setEnabled(False)
+        self.btn_update_now.clicked.connect(self._on_update_now)
+        row_upd.addWidget(self.btn_update_now)
+        self.btn_open_release = QPushButton("打开发布页")
+        self.btn_open_release.clicked.connect(self._on_open_release)
+        row_upd.addWidget(self.btn_open_release)
+        row_upd.addStretch()
+        v_upd.addLayout(row_upd)
+        self.chk_auto_update = QCheckBox("启动时自动检查更新（仅提示，不自动下载）")
+        self.chk_auto_update.setChecked(
+            bool(self.app.cfg.get("auto_check_update", True)))
+        self.chk_auto_update.toggled.connect(self._on_auto_update_toggled)
+        v_upd.addWidget(self.chk_auto_update)
+        layout.addWidget(grp_upd)
+
+        # ---- 开源许可与鸣谢 ----
+        grp_lic = QGroupBox("开源许可与鸣谢")
+        v_lic = QVBoxLayout(grp_lic)
+        lbl_lic = QLabel(
+            "本软件基于 GPL-3.0 授权开源，使用即表示同意许可条款，"
+            "全文见仓库 LICENSE 文件。"
+            "壁纸嵌入实现学习并借鉴了 Lively Wallpaper（GPL-3.0），"
+            '在此向作者 <a href="https://github.com/rocksdanister">rocksdanister</a>'
+            " 及社区贡献者致谢。")
+        lbl_lic.setWordWrap(True)
+        lbl_lic.setOpenExternalLinks(True)
+        v_lic.addWidget(lbl_lic)
+        link_lively = QLabel(
+            '<a href="https://github.com/rocksdanister/lively">'
+            "github.com/rocksdanister/lively</a>")
+        link_lively.setOpenExternalLinks(True)
+        v_lic.addWidget(link_lively)
+        layout.addWidget(grp_lic)
+
+        # 更新检查器（随对话框销毁）
+        from .update import UpdateChecker
+        self.updater = UpdateChecker(self)
+        self.updater.checkFinished.connect(self._on_check_finished)
+        self.updater.downloadProgress.connect(self._on_download_progress)
+        self.updater.downloadFinished.connect(self._on_download_finished)
+        self._update_installer_path = ""
+        if self.chk_auto_update.isChecked():
+            self.updater.check()
+            self.lbl_update.setText("正在检查更新…")
 
         layout.addStretch()
         return page
+
+    # ---------------- 更新 ----------------
+    def about_page_labels(self):
+        """关于页内全部 QLabel（测试与文案检查用）。"""
+        page = self._pages.get("about", (None, None))[0]
+        return page.findChildren(QLabel)
+
+    def _on_check_update(self) -> None:
+        self.btn_check_update.setEnabled(False)
+        self.lbl_update.setText("正在检查更新…")
+        self.updater.check()
+
+    def _on_check_finished(self, has_update: bool, latest: str, notes: str) -> None:
+        self.btn_check_update.setEnabled(True)
+        if has_update:
+            self.btn_update_now.setEnabled(True)
+            text = "发现新版本 v%s，可一键更新（下载后自动静默安装并重启）" % latest
+            if notes:
+                text += "\n更新说明：" + notes
+            self.lbl_update.setText(text)
+        elif latest:
+            self.lbl_update.setText("已是最新版本（v%s）" % latest)
+        else:
+            self.lbl_update.setText("检查更新失败，请稍后重试或直接打开发布页")
+
+    def _on_update_now(self) -> None:
+        self.btn_update_now.setEnabled(False)
+        self.lbl_update.setText("正在下载更新…")
+        self.updater.download()
+
+    def _on_download_progress(self, received: int, total: int) -> None:
+        pct = int(received * 100 / total) if total else 0
+        self.lbl_update.setText("正在下载更新… %d%%（%.1f / %.1f MB）"
+                                % (pct, received / 1048576.0, total / 1048576.0))
+
+    def _on_download_finished(self, ok: bool, payload: str) -> None:
+        if not ok:
+            self.lbl_update.setText("下载失败：%s。可打开发布页手动下载。" % payload)
+            self.btn_update_now.setEnabled(True)
+            return
+        self._update_installer_path = payload
+        try:
+            from .update import make_update_bat, run_update_bat
+            bat = make_update_bat(payload)
+            run_update_bat(bat)
+            self.lbl_update.setText("更新包已就绪，正在退出程序并安装新版本…")
+            # 给标签一点刷新时间，然后退出主程序（批处理负责杀进程+静默安装+重启）
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(800, self.app.quit)
+        except Exception as e:
+            log.exception("prepare update failed")
+            self.lbl_update.setText("准备更新失败：%s" % e)
+            self.btn_update_now.setEnabled(True)
+
+    def _on_open_release(self) -> None:
+        from PySide6.QtGui import QDesktopServices
+        from .update import REPO_PAGE
+        QDesktopServices.openUrl(QUrl(REPO_PAGE + "/releases"))
+
+    def _on_auto_update_toggled(self, checked: bool) -> None:
+        from . import config
+        self.app.cfg["auto_check_update"] = bool(checked)
+        config.save(self.app.cfg)
 
     # ---------------- 文件选择 ----------------
     def _pick(self, line_edit) -> None:

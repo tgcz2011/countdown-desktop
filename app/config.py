@@ -26,6 +26,7 @@ DEFAULTS = {
     "playback": {
         "video_loop": True,   # 视频循环播放
     },
+    "auto_check_update": True,  # 启动时自动检查更新（仅查询提示）
     "run_at_startup": False,
 }
 
