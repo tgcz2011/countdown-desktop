@@ -220,3 +220,24 @@ def create_single_instance_mutex(name: str):
         kernel32.CloseHandle(handle)
         return None
     return handle
+
+
+def system_uses_light_theme() -> bool:
+    r"""读取 Windows 个性化设置：应用主题是否为浅色。
+
+    注册表 HKCU\...\Themes\Personalize\AppsUseLightTheme：1=浅色，0=深色。
+    键不存在（老系统/未设置）时默认深色 → 托盘用白色 glyph。
+    """
+    import winreg
+    try:
+        key = winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER,
+            r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            0, winreg.KEY_READ)
+        try:
+            val, _ = winreg.QueryValueEx(key, "AppsUseLightTheme")
+            return bool(int(val))
+        finally:
+            winreg.CloseKey(key)
+    except (OSError, ValueError, TypeError):
+        return False

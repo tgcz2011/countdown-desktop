@@ -23,7 +23,7 @@
 | **v3.0.0.0** | **Python + PySide6 + pywebview(WebView2)** | 本机全链路验证通过 |
 | **v3.0.0.1** | 同上 | 修复 CI：中文语言包随仓库分发（d 升） |
 | **v3.0.1.2** | 同上 | 壁纸/屏保支持视频/图片/动图（c 升）+ 屏保底部缺口修复（d 升） |
-| **v3.1.0.0** | 同上 | 应用图标更换为用户上传的时钟 webp（抠底重建 alpha，多尺寸 ICO/PNG）（b 升）；设置界面改为左侧导航多页结构（壁纸/屏保/通用/关于，页面注册制便于扩展）（b 升）；托盘单击落通用页；自启逻辑统一为 main.set_autostart（设置页与托盘共用，状态互同步） |
+| **v3.1.0.0** | 同上 | 应用图标更换为用户上传的时钟 webp（抠底重建 alpha，多尺寸 ICO/PNG）（b 升）；设置界面改为左侧导航多页结构（壁纸/屏保/通用/关于，页面注册制便于扩展）（b 升）；托盘单击落通用页；自启逻辑统一为 main.set_autostart（设置页与托盘共用，状态互同步）；新增托盘专用白色 glyph 图标 icon-tray（黑托盘可见），读 AppsUseLightTheme 按任务栏主题选图标，WM_SETTINGCHANGE 热切换，浅色任务栏回退彩色主图标 |
 
 ## 三、架构
 
@@ -94,6 +94,8 @@ countdown-desktop/
 │   └── version.py          版本号（唯一来源之一，供 build.ps1 读取）
 ├── assets/icon.ico         多尺寸 ICO（256/128/64/48/32/24/16，新时钟图标）
 ├── assets/icon.png         256px 打底 PNG（同一时钟图标）
+├── assets/icon-tray.ico    托盘专用白色描边 glyph（256…16 八尺寸，黑托盘可见）
+├── assets/icon-tray.png    256px 白 glyph PNG（同一托盘图标）
 ├── installer/
 │   ├── setup.iss           Inno 安装脚本（内置 WebView2 bootstrapper 检测安装）
 │   └── MicrosoftEdgeWebview2Setup.exe
@@ -139,6 +141,10 @@ a=大添加 b=大改 c=小添加 d=小改动；去掉 `.` 后数值必须严格�
 - 泛洪抠图失败：圆形内切画布，四边中点处圆环紧贴图像边缘，边缘种子点落在深色环上把环咬掉。
 - 最终方案：白色系像素归一化（阈值 235 去棋盘残影）+ 几何圆形 alpha（4x 超采样，圆心 (400,400) 半径 400）。
 - 产物：assets/icon.png（256 打底，内容 92% 留 padding）、assets/icon.ico（256/128/64/48/32/24/16 七尺寸）。
+- 托盘可见性（v3.1.0.0 追加）：主图标深色在默认黑托盘不可见 → 另建 icon-tray.ico 白色描边 glyph
+  （深色像素软阈值 90/150 抽成蒙版转白，表盘镂空）；运行时读 HKCU AppsUseLightTheme，
+  深色任务栏用白 glyph、浅色回退彩色 icon.ico，WM_SETTINGCHANGE(ImmersiveColorSet) 热切换；
+  icon-tray.ico 已加入 PyInstaller datas。
 - 引用点：PyInstaller spec（datas + EXE icon）、Inno SetupIconFile、main.py 托盘 QIcon —— 均无需改路径。
 - 重建脚本：.openclaw/tmp/icon-work/build_icon.py（workspace，不入库）。
 

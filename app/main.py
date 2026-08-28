@@ -61,8 +61,14 @@ class App:
         icon_path = os.path.join(_base_dir(), "assets", "icon.ico")
         if not os.path.exists(icon_path):
             icon_path = ""
-        self.icon = QIcon(icon_path) if icon_path else self.qapp.style().standardIcon(
+        tray_path = os.path.join(_base_dir(), "assets", "icon-tray.ico")
+        if not os.path.exists(tray_path):
+            tray_path = icon_path
+        self.icon_colored = QIcon(icon_path) if icon_path else self.qapp.style().standardIcon(
             self.qapp.style().StandardPixmap.SP_ComputerIcon)
+        # 深色任务栏用白色 glyph（icon-tray），浅色任务栏回退彩色主图标
+        self.icon_tray = QIcon(tray_path) if tray_path else self.icon_colored
+        self._apply_tray_icon_for_theme()
 
         self.tray = QSystemTrayIcon(self.icon)
         self.tray.setToolTip("Countdown Desktop")
@@ -86,8 +92,27 @@ class App:
         self.timer.timeout.connect(self._idle_tick)
         self.timer.start(5000)
 
+        # 监听系统主题切换（WM_SETTINGCHANGE "ImmersiveColorSet"），热切换托盘图标
+        self._theme_filter = _ThemeChangeFilter(self)
+        self.qapp.installNativeEventFilter(self._theme_filter)
+
         if self.cfg["wallpaper"]["enabled"]:
             self.start_wallpaper()
+
+    # ---------------- 托盘图标 ----------------
+    def _apply_tray_icon_for_theme(self) -> None:
+        from . import win32
+        light = False
+        try:
+            light = win32.system_uses_light_theme()
+        except Exception:
+            log.exception("read theme failed")
+        self.tray.setIcon(self.icon_colored if light else self.icon_tray)
+        self.tray.setToolTip("Countdown Desktop")
+
+    def on_theme_changed(self) -> None:
+        log.info("system theme changed, refresh tray icon")
+        self._apply_tray_icon_for_theme()
 
     # ---------------- 壁纸 ----------------
     def start_wallpaper(self) -> None:
@@ -194,3 +219,31 @@ def run() -> int:
     log.info("=== main start, pid=%d ===", os.getpid())
     app = App()
     return app.exec_()
+
+
+# 主题过滤器依赖：Qt 原生事件基类 + win32 消息结构（仅非 Windows 平台缺失，程序本身只跑在 Windows）
+from PySide6.QtCore import QAbstractNativeEventFilter  # noqa: E402
+import ctypes  # noqa: E402
+import ctypes.wintypes  # noqa: E402
+
+
+class _ThemeChangeFilter(QAbstractNativeEventFilter):
+    """监听 WM_SETTINGCHANGE（系统主题切换），通知托盘换图标。"""
+
+    WM_SETTINGCHANGE = 0x001A
+
+    def __init__(self, app_ref):
+        super().__init__()
+        self.app_ref = app_ref
+
+    def nativeEventFilter(self, event_type, message):
+        if event_type == b"windows_generic_MSG":
+            msg = ctypes.wintypes.MSG.from_address(int(message))
+            if msg.message == self.WM_SETTINGCHANGE:
+                buf = ctypes.c_wchar_p(msg.lParam) if msg.lParam else None
+                if buf and buf.value == "ImmersiveColorSet":
+                    try:
+                        self.app_ref.on_theme_changed()
+                    except Exception:
+                        log.exception("on_theme_changed failed")
+        return False
