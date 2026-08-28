@@ -1,6 +1,6 @@
 # HANDOFF.md — Countdown Desktop 交接文档
 
-> 最后更新: 2026-08-12（v3.0.1.2，媒体类型支持 + 屏保全屏修复）
+> 最后更新: 2026-08-28（v3.1.0.0，新时钟图标 + 设置多页化）
 
 ## 一、需求（用户原始要求）
 
@@ -23,6 +23,7 @@
 | **v3.0.0.0** | **Python + PySide6 + pywebview(WebView2)** | 本机全链路验证通过 |
 | **v3.0.0.1** | 同上 | 修复 CI：中文语言包随仓库分发（d 升） |
 | **v3.0.1.2** | 同上 | 壁纸/屏保支持视频/图片/动图（c 升）+ 屏保底部缺口修复（d 升） |
+| **v3.1.0.0** | 同上 | 应用图标更换为用户上传的时钟 webp（抠底重建 alpha，多尺寸 ICO/PNG）（b 升）；设置界面改为左侧导航多页结构（壁纸/屏保/通用/关于，页面注册制便于扩展）（b 升）；托盘单击落通用页；自启逻辑统一为 main.set_autostart（设置页与托盘共用，状态互同步） |
 
 ## 三、架构
 
@@ -87,11 +88,12 @@ countdown-desktop/
 │   ├── main.py             主进程：托盘/空闲检测/子进程管理/单实例 mutex
 │   ├── player.py           播放器：壁纸嵌入/屏保全屏/输入退出/隐藏任务栏
 │   ├── win32.py            Win32 封装（嵌入/全屏/空闲/自启/mutex/DPI）
-│   ├── settings.py         设置对话框（壁纸与屏保分开设）
+│   ├── settings.py         设置对话框（左侧导航多页：壁纸/屏保/通用/关于；页面注册制 PAGES）
 │   ├── config.py           config.json 读写（默认 URL + 600s）
 │   ├── media.py            媒体源：类型识别/本地文件 HTTP 服务/视频图片渲染页
 │   └── version.py          版本号（唯一来源之一，供 build.ps1 读取）
-├── assets/icon.ico
+├── assets/icon.ico         多尺寸 ICO（256/128/64/48/32/24/16，新时钟图标）
+├── assets/icon.png         256px 打底 PNG（同一时钟图标）
 ├── installer/
 │   ├── setup.iss           Inno 安装脚本（内置 WebView2 bootstrapper 检测安装）
 │   └── MicrosoftEdgeWebview2Setup.exe
@@ -129,7 +131,16 @@ git tag v3.0.1.2; git push origin main v3.0.1.2   # Actions 自动 Release
 
 ## 八、版本规则
 
-a=大添加 b=大改 c=小添加 d=小改动；去掉 `.` 后数值必须严格大于上一版本。当前最高 tag：v3.0.1.2（历史 v1/v2 tag 已废弃但保留）。
+a=大添加 b=大改 c=小添加 d=小改动；去掉 `.` 后数值必须严格大于上一版本。当前最高已发布 tag：v3.0.1.2；v3.1.0.0 待打 tag 发布（历史 v1/v2 tag 已废弃但保留）。
+
+## 八·一、图标更换记录（v3.1.0.0）
+
+- 源：用户上传 800x800 webp（深色圆环时钟、白色系棋盘格底被烧进像素，RGB 无 alpha）。
+- 泛洪抠图失败：圆形内切画布，四边中点处圆环紧贴图像边缘，边缘种子点落在深色环上把环咬掉。
+- 最终方案：白色系像素归一化（阈值 235 去棋盘残影）+ 几何圆形 alpha（4x 超采样，圆心 (400,400) 半径 400）。
+- 产物：assets/icon.png（256 打底，内容 92% 留 padding）、assets/icon.ico（256/128/64/48/32/24/16 七尺寸）。
+- 引用点：PyInstaller spec（datas + EXE icon）、Inno SetupIconFile、main.py 托盘 QIcon —— 均无需改路径。
+- 重建脚本：.openclaw/tmp/icon-work/build_icon.py（workspace，不入库）。
 
 ## 九、已知限制 / 待办
 

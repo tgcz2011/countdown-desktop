@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""配置持久化：%APPDATA%\CountdownDesktop\config.json"""
+r"""配置持久化：%APPDATA%\CountdownDesktop\config.json"""
 import json
 import os
 

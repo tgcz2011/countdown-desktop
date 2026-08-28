@@ -67,8 +67,9 @@ class App:
         self.tray = QSystemTrayIcon(self.icon)
         self.tray.setToolTip("Countdown Desktop")
         self.menu = QMenu()
-        self.act_settings = self.menu.addAction("设置", self.open_settings)
-        self.act_startup = self.menu.addAction("开机自启", self.toggle_startup)
+        self.act_settings = self.menu.addAction("设置", lambda: self.open_settings("general"))
+        self.act_startup = self.menu.addAction(
+            "开机自启", lambda: self.set_autostart(self.act_startup.isChecked()))
         self.act_startup.setCheckable(True)
         self.act_startup.setChecked(bool(self.cfg.get("run_at_startup")))
         self.menu.addSeparator()
@@ -140,24 +141,32 @@ class App:
         from PySide6.QtWidgets import QSystemTrayIcon
         if reason in (QSystemTrayIcon.ActivationReason.Trigger,
                       QSystemTrayIcon.ActivationReason.DoubleClick):
-            self.open_settings()
+            # 托盘单击多为查状态/改自启等常规操作，落到通用页
+            self.open_settings("general")
 
-    def toggle_startup(self) -> None:
+    def set_autostart(self, enable: bool) -> None:
+        """统一自启入口：注册表 + 配置 + 托盘勾选态同步（设置页与托盘共用）。"""
         from . import win32, config
-        enable = self.act_startup.isChecked()
+        if enable == bool(self.cfg.get("run_at_startup")):
+            self.act_startup.setChecked(enable)
+            return
         exe = sys.executable if getattr(sys, "frozen", False) else os.path.abspath(
             os.path.join(_base_dir(), "run.py"))
         try:
             win32.set_autostart(enable, exe)
         except OSError:
             log.exception("set_autostart failed")
+            enable = bool(self.cfg.get("run_at_startup"))
         self.cfg["run_at_startup"] = enable
         config.save(self.cfg)
+        self.act_startup.setChecked(enable)
 
-    def open_settings(self) -> None:
+    def open_settings(self, page: str = "wallpaper") -> None:
         from .settings import SettingsDialog
         if self.settings_dialog is None or not self.settings_dialog.isVisible():
             self.settings_dialog = SettingsDialog(self)
+        if hasattr(self.settings_dialog, "goto_page"):
+            self.settings_dialog.goto_page(page)
         self.settings_dialog.show()
         self.settings_dialog.raise_()
         self.settings_dialog.activateWindow()
