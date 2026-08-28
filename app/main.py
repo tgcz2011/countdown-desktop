@@ -68,9 +68,8 @@ class App:
             self.qapp.style().StandardPixmap.SP_ComputerIcon)
         # 深色任务栏用白色 glyph（icon-tray），浅色任务栏回退彩色主图标
         self.icon_tray = QIcon(tray_path) if tray_path else self.icon_colored
-        self._apply_tray_icon_for_theme()
 
-        self.tray = QSystemTrayIcon(self.icon)
+        self.tray = QSystemTrayIcon(self.icon_colored)
         self.tray.setToolTip("Countdown Desktop")
         self.menu = QMenu()
         self.act_settings = self.menu.addAction("设置", lambda: self.open_settings("general"))
@@ -86,6 +85,8 @@ class App:
         self.tray.setContextMenu(self.menu)
         self.tray.activated.connect(self._on_tray_activated)
         self.tray.show()
+        # 托盘就绪后按系统主题定图标（深色任务栏用白 glyph）
+        self._apply_tray_icon_for_theme()
 
         # 空闲检测
         self.timer = QTimer()

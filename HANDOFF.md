@@ -1,6 +1,6 @@
 # HANDOFF.md — Countdown Desktop 交接文档
 
-> 最后更新: 2026-08-28（v3.1.0.0，新时钟图标 + 设置多页化）
+> 最后更新: 2026-08-28（v3.1.0.1，修复启动崩溃；v3.1.0.0 新时钟图标 + 设置多页化 + 托盘主题自适应）
 
 ## 一、需求（用户原始要求）
 
@@ -24,6 +24,7 @@
 | **v3.0.0.1** | 同上 | 修复 CI：中文语言包随仓库分发（d 升） |
 | **v3.0.1.2** | 同上 | 壁纸/屏保支持视频/图片/动图（c 升）+ 屏保底部缺口修复（d 升） |
 | **v3.1.0.0** | 同上 | 应用图标更换为用户上传的时钟 webp（抠底重建 alpha，多尺寸 ICO/PNG）（b 升）；设置界面改为左侧导航多页结构（壁纸/屏保/通用/关于，页面注册制便于扩展）（b 升）；托盘单击落通用页；自启逻辑统一为 main.set_autostart（设置页与托盘共用，状态互同步）；新增托盘专用白色 glyph 图标 icon-tray（黑托盘可见），读 AppsUseLightTheme 按任务栏主题选图标，WM_SETTINGCHANGE 热切换，浅色任务栏回退彩色主图标 |
+| **v3.1.0.1** | 同上 | 修复 v3.1.0.0 启动即崩：主题图标应用被误提前到托盘创建之前（self.tray 不存在 → AttributeError），且构造内仍残留旧名 self.icon 引用；两处修正，图标应用移到 tray.show() 之后（d 升）。教训：测试 Probe 桩绕过了真实 __init__ 顺序，已补 App 真实构造 e2e 测试 |
 
 ## 三、架构
 
@@ -36,6 +37,9 @@ run.py player wallpaper   → pywebview 窗口 → WorkerW/Progman 嵌入（Live
 run.py player screensaver → pywebview 窗口 → 全屏 TOPMOST + 隐藏任务栏/光标 + 输入即退
 配置：%APPDATA%\CountdownDesktop\config.json
 日志：%APPDATA%\CountdownDesktop\{main,player-wallpaper,player-screensaver}.log
+
+
+> 注：本文件中「云桌面抓不到壁纸层」类限制均为开发机 Windows Server 2022 云桌面特有环境问题，常规 Win10/11 物理机不受影响。
 ```
 
 壁纸嵌入序列（app/win32.py，继承自旧版血泪史并复验）：
@@ -51,7 +55,7 @@ run.py player screensaver → pywebview 窗口 → 全屏 TOPMOST + 隐藏任务
 ### 渲染引擎选型（最重要）
 1. **QtWebEngine reparent 后渲染停止**：Qt6 把 Chromium 内容渲染到独立 `Chrome_WidgetWin_0` 顶层窗口，嵌入后容器空白。v2 因此弃用；v3 用 Qt 6.11 再次验证仍然如此（PrintWindow 容器空白、Chrome_WidgetWin_0 仍是顶层窗口）。**结论：QtWebEngine 永远不能用于嵌入壁纸**。
 2. **pywebview edgechromium（WebView2）SetParent 后渲染正常**：WebView2 控件（`Chrome_WidgetWin_1` 等）是 pywebview 窗口的**子窗口**，随父窗口一起被嵌入/置顶。已用 `PrintWindow(hwnd, dc, PW_RENDERFULLCONTENT=2)` 截图实证网页倒计时画面在桌面壁纸层内。
-3. 开发机（Windows Server 2022 云桌面）`ImageGrab.grab` 抓不到壁纸层内容，**验证一律用 `tools/capture.py`（PrintWindow PW_RENDERFULLCONTENT）抓宿主窗口**，别用全屏截图下结论。
+3. 开发机（Windows Server 2022 云桌面，无常规桌面壁纸层）`ImageGrab.grab` 抓不到壁纸层内容——**此为该云桌面特有环境限制，常规 Win10/11 物理机无此问题**；但验证习惯仍推荐 `tools/capture.py`（PrintWindow PW_RENDERFULLCONTENT 抓宿主窗口），比全屏截图更精准。
 
 ### Win32 嵌入
 4. 0x052C 必须 `0xD,0x1`；壁纸宿主是 DefView WorkerW 的下一个兄弟，**不是 DefView 所在那个**。
@@ -154,14 +158,14 @@ a=大添加 b=大改 c=小添加 d=小改动；去掉 `.` 后数值必须严格�
 2. 多显示器按虚拟屏幕整块铺满（span 模式），未做每屏独立窗口。
 3. 屏保触发检测粒度 5s；启动后 1s 内输入不触发退出（防误触）。
 4. WebView2 版本随系统更新，极老 Win10 需联网装 runtime（安装包装）。
-5. 开发机为云桌面，`ImageGrab` 抓屏不含壁纸层；真机客户端（Win10/11 常规环境）显示已按 Lively 同构机制实现，建议真机复验。
+5. 开发机（Windows Server 2022 云桌面）`ImageGrab` 抓屏不含壁纸层——**云桌面特有限制，非普遍问题**；常规 Win10/11 客户端壁纸层显示按 Lively 同构机制实现。
 
 ## 十、验证方法备忘
 
 ```powershell
 # 抓桌面宿主窗口（看壁纸是否在壁纸层渲染）
 .\.venv\Scripts\python.exe tools\capture.py out.png host
-# 全屏截图（屏保验证可用，壁纸层在云桌面抓不到）
+# 全屏截图（屏保验证可用；壁纸层抓取在 Windows Server 2022 云桌面受限，物理机不受限）
 .\.venv\Scripts\python.exe tools\capture.py out.png screen
 ```
 
