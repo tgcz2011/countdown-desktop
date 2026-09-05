@@ -71,11 +71,13 @@ def _find_own_window(title: str):
 
 def run(mode: str) -> None:
     _setup_logging(mode)
-    from . import config, win32, media
+    from . import config, win32, media, cli
     import webview
 
     win32.set_process_dpi_awareness()
     cfg = config.load()
+    # CLI 覆盖只改内存，不落盘（主进程已透传同一组参数）
+    cli.apply(cli.parse_argv(sys.argv)[0], cfg)
     title = WINDOW_TITLE[mode]
     url = cfg[mode]["url"]
     fit = cfg[mode].get("fit", "cover")

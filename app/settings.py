@@ -6,6 +6,9 @@
   1. 写一个 make_xxx_page(self) 工厂，返回含 load()/save() 接口的 QWidget；
   2. 在 PAGES 里注册 (key, 标题, 工厂)。
 导航切换、统一 load/save 由基类逻辑自动处理。
+
+v3.2.0.0 起新增「倒计时」页：高考/中考/自定义 三态切换（高考=原默认链接，
+中考=countdown-junior）；自定义时壁纸/屏保地址分别在各自页面设置。
 """
 import logging
 import os
@@ -19,10 +22,11 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QFileDialog,
 
 log = logging.getLogger("settings")
 
-URL_HELP = "http(s) 网页地址，留空则使用默认地址"
+URL_HELP = "http(s) 网页地址，或本地 视频/图片/动图 文件；留空则使用「倒计时」页默认地址"
 
 # 导航页注册表：(key, 标题, 工厂函数名)。需要新页时在此追加即可。
 PAGES = [
+    ("countdown", "倒计时", "_make_countdown_page"),
     ("wallpaper", "动态壁纸", "_make_wallpaper_page"),
     ("screensaver", "屏幕保护", "_make_screensaver_page"),
     ("general", "通用", "_make_general_page"),
@@ -30,11 +34,11 @@ PAGES = [
 ]
 
 
-def _normalize_url(text: str) -> str:
+def _normalize_url(text: str, default_url: str = None) -> str:
     from . import config
     text = text.strip()
     if not text:
-        return config.DEFAULT_URL
+        return default_url or config.DEFAULT_URL
     if text.startswith(("http://", "https://")):
         return text
     if os.path.isfile(text):
@@ -138,6 +142,43 @@ class SettingsDialog(QDialog):
             combo.addItem(config.FIT_LABELS[key], key)
         return combo
 
+    def _make_countdown_page(self) -> QWidget:
+        from . import config
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(16, 16, 16, 16)
+
+        grp = QGroupBox("倒计时类型")
+        form = QFormLayout(grp)
+        self.cmb_exam = QComboBox()
+        for key in config.EXAM_TYPES:
+            self.cmb_exam.addItem(config.EXAM_LABELS[key], key)
+        self.cmb_exam.currentIndexChanged.connect(self._on_exam_changed)
+        form.addRow("类型", self.cmb_exam)
+        self.lbl_exam_hint = QLabel(
+            "高考 / 中考：壁纸与屏保统一使用对应倒计时页面（高考为原默认链接）。\n"
+            "自定义：壁纸与屏保可在各自页面分别设置地址。")
+        self.lbl_exam_hint.setWordWrap(True)
+        form.addRow(self.lbl_exam_hint)
+        layout.addWidget(grp)
+
+        layout.addStretch()
+        return page
+
+    def _on_exam_changed(self) -> None:
+        """按倒计时类型同步壁纸/屏保源输入框：预设时只读显示预设地址，自定义时可编辑。"""
+        from . import config
+        et = self.cmb_exam.currentData() or "gaokao"
+        custom = (et == "custom")
+        for txt in (self.txt_wall_url, self.txt_ss_url):
+            txt.setEnabled(custom)
+            txt.setReadOnly(not custom)
+            if custom:
+                txt.setPlaceholderText("网页地址，或浏览选择 视频/图片/动图 文件（留空=高考默认）")
+            else:
+                txt.setPlaceholderText("跟随「倒计时」页：%s" % config.EXAM_URLS[et])
+                txt.setText(config.EXAM_URLS[et])
+
     def _make_wallpaper_page(self) -> QWidget:
         page = QWidget()
         layout = QVBoxLayout(page)
@@ -149,7 +190,7 @@ class SettingsDialog(QDialog):
         form.addRow(self.chk_wall)
         row_wall = QHBoxLayout()
         self.txt_wall_url = QLineEdit()
-        self.txt_wall_url.setPlaceholderText("网页地址，或浏览选择 视频/图片/动图 文件")
+        self.txt_wall_url.setPlaceholderText(URL_HELP)
         row_wall.addWidget(self.txt_wall_url)
         self.btn_wall_file = QPushButton("浏览…")
         self.btn_wall_file.clicked.connect(lambda: self._pick(self.txt_wall_url))
@@ -177,7 +218,7 @@ class SettingsDialog(QDialog):
         form.addRow(self.chk_ss)
         row_ss_url = QHBoxLayout()
         self.txt_ss_url = QLineEdit()
-        self.txt_ss_url.setPlaceholderText("网页地址，或浏览选择 视频/图片/动图 文件")
+        self.txt_ss_url.setPlaceholderText(URL_HELP)
         row_ss_url.addWidget(self.txt_ss_url)
         self.btn_ss_file = QPushButton("浏览…")
         self.btn_ss_file.clicked.connect(lambda: self._pick(self.txt_ss_url))
@@ -385,12 +426,20 @@ class SettingsDialog(QDialog):
         """从配置刷新所有页面控件（含通用页）。"""
         from . import config
         cfg = self.app.cfg
+        et = cfg.get("exam_type", "gaokao")
+        self.cmb_exam.setCurrentIndex(max(0, self.cmb_exam.findData(et)))
+        if et in config.EXAM_URLS:
+            # 预设模式：只读显示预设地址
+            self.txt_wall_url.setText(config.EXAM_URLS[et])
+            self.txt_ss_url.setText(config.EXAM_URLS[et])
+        else:
+            wall_url = cfg["wallpaper"]["url"]
+            self.txt_wall_url.setText("" if wall_url == config.DEFAULT_URL else wall_url)
+            ss_url = cfg["screensaver"]["url"]
+            self.txt_ss_url.setText("" if ss_url == config.DEFAULT_URL else ss_url)
+        self._on_exam_changed()
         self.chk_wall.setChecked(bool(cfg["wallpaper"]["enabled"]))
-        wall_url = cfg["wallpaper"]["url"]
-        self.txt_wall_url.setText("" if wall_url == config.DEFAULT_URL else wall_url)
         self.chk_ss.setChecked(bool(cfg["screensaver"]["enabled"]))
-        ss_url = cfg["screensaver"]["url"]
-        self.txt_ss_url.setText("" if ss_url == config.DEFAULT_URL else ss_url)
         try:
             self.spin_timeout.setValue(int(cfg["screensaver"]["timeout"]))
         except (TypeError, ValueError):
@@ -413,12 +462,18 @@ class SettingsDialog(QDialog):
         old_fit = cfg["wallpaper"].get("fit", "cover")
         old_mute = bool(cfg["wallpaper"].get("mute", True))
 
+        et = self.cmb_exam.currentData() or "gaokao"
+        cfg["exam_type"] = et
+        if et in config.EXAM_URLS:
+            cfg["wallpaper"]["url"] = config.EXAM_URLS[et]
+            cfg["screensaver"]["url"] = config.EXAM_URLS[et]
+        else:
+            cfg["wallpaper"]["url"] = _normalize_url(self.txt_wall_url.text())
+            cfg["screensaver"]["url"] = _normalize_url(self.txt_ss_url.text())
         cfg["wallpaper"]["enabled"] = self.chk_wall.isChecked()
-        cfg["wallpaper"]["url"] = _normalize_url(self.txt_wall_url.text())
         cfg["wallpaper"]["fit"] = self.cmb_wall_fit.currentData() or "cover"
         cfg["wallpaper"]["mute"] = self.chk_wall_mute.isChecked()
         cfg["screensaver"]["enabled"] = self.chk_ss.isChecked()
-        cfg["screensaver"]["url"] = _normalize_url(self.txt_ss_url.text())
         cfg["screensaver"]["timeout"] = self.spin_timeout.value()
         cfg["screensaver"]["fit"] = self.cmb_ss_fit.currentData() or "cover"
         cfg["screensaver"]["mute"] = self.chk_ss_mute.isChecked()

@@ -5,6 +5,8 @@
   主进程(本文件) ── 托盘/设置/空闲检测
     ├─ player wallpaper  （壁纸，常驻，嵌入桌面）
     └─ player screensaver（屏保，空闲触发，输入即退）
+
+命令行参数（单次有效，不写入长期配置）：见 app/cli.py。
 """
 import logging
 import os
@@ -12,6 +14,10 @@ import subprocess
 import sys
 
 log = logging.getLogger("main")
+
+# 本次启动的命令行覆盖项（单次有效，不写入长期配置）；播放器子进程透传复用
+_CLI_OVERRIDES = {}
+_CLI_PROBLEMS = []
 
 
 def _setup_logging() -> None:
@@ -51,32 +57,50 @@ def _asset_path(name: str) -> str:
 
 
 def _spawn_cmd(mode: str) -> list:
+    from . import cli
     if getattr(sys, "frozen", False):
-        return [sys.executable, "player", mode]
-    run_py = os.path.join(_base_dir(), "run.py")
-    return [sys.executable, run_py, "player", mode]
+        base = [sys.executable, "player", mode]
+    else:
+        run_py = os.path.join(_base_dir(), "run.py")
+        base = [sys.executable, run_py, "player", mode]
+    # 把本次启动的 CLI 覆盖透传给播放器，保证壁纸/屏保用同一覆盖配置
+    return base + cli.serialize(_CLI_OVERRIDES)
 
 
 class App:
     def __init__(self):
-        from PySide6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
+        from PySide6.QtWidgets import (QApplication, QSystemTrayIcon, QMenu,
+                                       QMessageBox)
         from PySide6.QtGui import QIcon
         from PySide6.QtCore import QTimer, Qt
-        from . import config, win32
+        from . import config, win32, cli
 
         win32.set_process_dpi_awareness()
+        self.qapp = QApplication(sys.argv)
+        self.qapp.setQuitOnLastWindowClosed(False)
+
+        if "-h" in sys.argv or "--help" in sys.argv:
+            QMessageBox.information(None, "Countdown Desktop", cli.USAGE)
+            raise SystemExit(0)
+        if _CLI_PROBLEMS:
+            QMessageBox.warning(
+                None, "Countdown Desktop",
+                "以下命令行参数无法识别，已忽略：\n" + "\n".join(_CLI_PROBLEMS))
+
         self.mutex = win32.create_single_instance_mutex("CountdownDesktop_Single")
         if self.mutex is None:
+            if _CLI_OVERRIDES:
+                QMessageBox.warning(
+                    None, "Countdown Desktop",
+                    "程序已在运行。带参数启动需要先退出当前实例。")
             log.info("another instance running, exit")
             raise SystemExit(0)
 
         self.cfg = config.load()
+        cli.apply(_CLI_OVERRIDES, self.cfg)   # CLI 覆盖只改内存，不落盘
         self.wallpaper_proc = None
         self.screensaver_proc = None
         self.settings_dialog = None
-
-        self.qapp = QApplication(sys.argv)
-        self.qapp.setQuitOnLastWindowClosed(False)
 
         icon_path = _asset_path("icon.ico")
         if not os.path.exists(icon_path):
@@ -168,7 +192,10 @@ class App:
 
     def refresh_wallpaper(self) -> None:
         self.stop_wallpaper()
-        self.cfg = __import__("app.config", fromlist=["config"]).load()
+        from . import config, cli
+        self.cfg = config.load()
+        # 刷新后重新套用本次启动的 CLI 覆盖（单次有效）
+        cli.apply(_CLI_OVERRIDES, self.cfg)
         if self.cfg["wallpaper"]["enabled"]:
             self.start_wallpaper()
 
@@ -260,8 +287,14 @@ class App:
 
 
 def run() -> int:
+    global _CLI_OVERRIDES, _CLI_PROBLEMS
     _setup_logging()
-    log.info("=== main start, pid=%d ===", os.getpid())
+    from . import cli
+    _CLI_OVERRIDES, _CLI_PROBLEMS = cli.parse_argv(sys.argv)
+    log.info("=== main start, pid=%d, cli overrides=%s ===", os.getpid(),
+             _CLI_OVERRIDES or "-")
+    if _CLI_PROBLEMS:
+        log.warning("unknown cli args ignored: %s", _CLI_PROBLEMS)
     app = App()
     return app.exec_()
 
