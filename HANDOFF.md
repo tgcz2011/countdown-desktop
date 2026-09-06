@@ -13,7 +13,7 @@
 7. 语言在 go/rust/python 中选（采用 python + PySide6，用户推荐）。
 8. 版本号 `a.b.c.d`（d 小改动、c 小添加、b 大改、a 大添加），去掉点后严格递增；每次更新必须同步更新 README 与 HANDOFF。
 9. release 走 GitHub Actions。
-10. **v3.2.0.0 追加**：① 倒计时类型切换（高考/中考/自定义；高考=原默认链接 `countdown`，中考=`countdown-junior`）；② 全部设置支持命令行参数单次覆盖（不写入长期配置），主进程透传给播放器子进程。
+10. **v3.2.0.0 追加**：① 倒计时类型切换（高考/中考/自定义；高考=原默认链接 `countdown`，中考=`countdown-junior`）；② 全部设置支持命令行参数单次覆盖（不写入长期配置），主进程透传给播放器子进程；③ 单实例接管：已有实例运行时，新启动的实例（GUI 或带参）自动通知旧实例优雅退出后接管，后启动者覆盖先启动者效果，旧实例无响应时强杀进程树兜底。
 
 ## 二、版本历史
 
@@ -29,7 +29,7 @@
 | **v3.1.1.0** | 同上 | 五项新增/修复（c 升 + b 升）：① 退出/关壁纸后白屏修复——本软件从不改系统壁纸值，退出/停壁纸时把 SPI 当前壁纸原样重设一次强制 explorer 重绘（无快照、无跨进程同步、不回滚用户中途换的壁纸；主进程负责因 terminate 杀进程时 closed 不触发；本机实测 SPI_SET 同路径重设成功）；② 图片/视频画幅可调 cover/contain/fill（壁纸与屏保独立，object-fit 实现）；③ 网页/视频声音可选（默认静音；WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS 合并式追加 autoplay 放行，静音时追加 --mute-audio 覆盖网页源）；④ 视频循环开关（通用页，默认开）；⑤ 设置×按钮显式启用（等同取消）。附带：PyInstaller 6 资源路径修复（_internal/_MEIPASS），frozen 托盘图标此前因此回退系统图标；media.build_html 改 html.escape |
 | **v3.1.1.1** | 同上 | 修复 v3.1.1.0 画幅模板 bug（d 升）：fit 样式段用 % 拼接却写了 .format 的 {{}} 转义，浏览器收到非法 CSS 整段丢弃，视频/图片失去铺满样式缩在左上角（网页源不走内联模板不受影响）；改为单花括号，并新增回归测试：禁止 {{ 漏入 HTML、逐 fit/kind 断言 object-fit 规则存在且合法 |
 | **v3.1.2.0** | 同上 | 关于页完善（c 升）：新增 GitHub 仓库/反馈链接、GPL-3.0 许可说明、Lively Wallpaper（rocksdanister）鸣谢；新增检查更新（GitHub Releases API，去点数值比较）+ 一键更新（下载安装包到 %TEMP%，批处理 taskkill 后 Inno /SILENT /RESTARTAPPLICATIONS 静默装并重启）+ 启动自动检查（仅提示不自动下载，可关）；新模块 app/update.py（QNetworkAccessManager 异步，信号驱动） |
-| **v3.2.0.0** | 同上 | 中高考切换 + 命令行参数（c 升 + c 升）：①「倒计时」设置页：高考/中考/自定义三态（高考=原默认 `countdown`，中考=`countdown-junior`；预设模式壁纸/屏保统一用预设地址且输入框只读，自定义模式两者分别可填）；config 新增 exam_type，旧版配置无该字段时按存量 URL 推断迁移（双高考→gaokao、双中考→zhongkao、其余→custom，升级前后行为一致）；② 新模块 app/cli.py：全部设置可通过 `--exam/--wallpaper-url/--screensaver-timeout/--video-loop…` 等参数单次覆盖（仅内存不落盘），主进程 _spawn_cmd 把参数透传给播放器子进程、refresh_wallpaper 重新套用；带参启动遇到已运行实例时弹窗提示先退出；--help 弹窗显示用法；未知参数弹窗警告并忽略；③ 单实例检查移到 QApplication 创建之后（消息弹窗依赖 qapp）；④ 新增 tools/test_cli.py 回归测试（解析/序列化/覆盖/migration），test_settings.py 改为隔离临时配置目录防污染 |
+| **v3.2.0.0** | 同上 | 中高考切换 + 命令行参数（c 升 + c 升）：①「倒计时」设置页：高考/中考/自定义三态（高考=原默认 `countdown`，中考=`countdown-junior`；预设模式壁纸/屏保统一用预设地址且输入框只读，自定义模式两者分别可填）；config 新增 exam_type，旧版配置无该字段时按存量 URL 推断迁移（双高考→gaokao、双中考→zhongkao、其余→custom，升级前后行为一致）；② 新模块 app/cli.py：全部设置可通过 `--exam/--wallpaper-url/--screensaver-timeout/--video-loop…` 等参数单次覆盖（仅内存不落盘），主进程 _spawn_cmd 把参数透传给播放器子进程、refresh_wallpaper 重新套用；--help 弹窗显示用法；未知参数弹窗警告并忽略；③ 单实例接管：命名互斥量 CountdownDesktop_Single + 命名事件 CountdownDesktop_Quit（250ms 轮询）+ PID 文件 main.pid；新实例检测到互斥量被占时 SetEvent 通知旧实例 quit()（优雅：停壁纸/恢复桌面/删 pid/退托盘），5s 未退则 taskkill /F /T 强杀进程树，然后接管；GUI↔CLI 可互相接管；④ 单实例检查移到 QApplication 创建之后（消息弹窗依赖 qapp）；⑤ 新增 tools/test_cli.py 回归测试（解析/序列化/覆盖/migration），tools/test_takeover.py 端到端接管测试，test_settings.py 改为隔离临时配置目录防污染 |
 
 ## 三、架构
 
@@ -43,6 +43,7 @@ run.py player screensaver → pywebview 窗口 → 全屏 TOPMOST + 隐藏任务
 配置：%APPDATA%\CountdownDesktop\config.json
 日志：%APPDATA%\CountdownDesktop\{main,player-wallpaper,player-screensaver}.log
 命令行覆盖：app/cli.py（主进程与播放器子进程共用；_spawn_cmd 透传 serialize 结果）
+单实例接管：互斥量 CountdownDesktop_Single + 命名事件 CountdownDesktop_Quit（250ms 轮询）+ PID 文件；新实例 SetEvent→旧实例 quit()，5s 超时 taskkill /F /T 兜底
 
 
 > 注：本文件中「云桌面抓不到壁纸层」类限制均为开发机 Windows Server 2022 云桌面特有环境问题，常规 Win10/11 物理机不受影响。
@@ -90,6 +91,7 @@ run.py player screensaver → pywebview 窗口 → 全屏 TOPMOST + 隐藏任务
 23. 验证机长期无人输入：主程序启动 600s 后屏保会自动触发，属正常产品行为，验证壁纸时注意区分（抓图看到黑顶=屏保盖在上面）。
 24. **设置类测试必须隔离真实配置**（v3.2.0.0 教训）：test_settings 曾直接 `config.load/save` 真实 `%APPDATA%\CountdownDesktop\config.json`，覆盖了用户自定义源地址。任何会 save 的测试都要先 `config.config_dir = lambda: 临时目录`（test_cli/test_settings 均如此），并确认真实配置文件未被改动。
 25. 本机 APPDATA 配置曾被人为/实验性改动（壁纸=本地 mp4、屏保=example.com/x、D:\countdown-desktop 曾含 --url 实验副本且已删除）：改前先核对 config 与日志时间线，不要假设默认值。
+26. **跨进程 IPC 不要用 QLocalServer/QLocalSocket**（v3.2.0.0 教训）：同进程内正常，跨进程时客户端 connect/write 成功但服务端 newConnection 不触发（PySide6 6.11 + Windows 命名管道已知坑）。单实例接管改用 Win32 命名事件（CreateEventW/OpenEventW/SetEvent + 250ms 轮询 WaitForSingleObject），简单可靠；强杀兜底用 taskkill /F /T /PID（PID 文件在 config_dir/main.pid）。
 
 ## 五、项目结构
 
@@ -97,7 +99,7 @@ run.py player screensaver → pywebview 窗口 → 全屏 TOPMOST + 隐藏任务
 countdown-desktop/
 ├── run.py                  入口（无参=主程序；player <mode>=播放器）
 ├── app/
-│   ├── main.py             主进程：托盘/空闲检测/子进程管理/单实例 mutex
+│   ├── main.py             主进程：托盘/空闲检测/子进程管理/单实例互斥量+命名事件接管（v3.2.0.0）
 │   ├── player.py           播放器：壁纸嵌入/屏保全屏/输入退出/隐藏任务栏
 │   ├── win32.py            Win32 封装（嵌入/全屏/空闲/自启/mutex/DPI）
 │   ├── settings.py         设置对话框（左侧导航多页：倒计时/壁纸/屏保/通用/关于；页面注册制 PAGES）
@@ -114,6 +116,7 @@ countdown-desktop/
 │   └── MicrosoftEdgeWebview2Setup.exe
 ├── tools/capture.py        开发验证截图（PrintWindow fullcontent）
 ├── tools/test_cli.py       命令行参数/覆盖/迁移回归测试（v3.2.0.0 新增，无需 GUI）
+├── tools/test_takeover.py  单实例接管端到端测试（v3.2.0.0 新增，启动两个真实进程验证）
 ├── tools/test_settings.py  设置界面渲染/保存测试（隔离临时配置目录）
 ├── build.ps1               本地一键构建
 ├── CountdownDesktop.spec   PyInstaller 规格

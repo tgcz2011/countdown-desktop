@@ -1,23 +1,37 @@
 # -*- coding: utf-8 -*-
-"""主程序：托盘图标 + 设置界面 + 空闲检测 + 播放器子进程管理。
+"""主程序：托盘图标 + 设置界面 + 空闲检测 + 播放器子进程管理 + 单实例接管。
 
 进程模型（参考 Lively）：
   主进程(本文件) ── 托盘/设置/空闲检测
     ├─ player wallpaper  （壁纸，常驻，嵌入桌面）
     └─ player screensaver（屏保，空闲触发，输入即退）
 
+单实例：命名互斥量 CountdownDesktop_Single。若已有实例在运行，
+新实例通过命名事件 CountdownDesktop_Quit 通知旧实例优雅退出
+（超时则按 PID 文件强杀进程树），然后接管启动——后启动的实例
+覆盖先启动的实例效果（GUI↔CLI 均可互相接管）。
+
 命令行参数（单次有效，不写入长期配置）：见 app/cli.py。
 """
+import ctypes
 import logging
 import os
 import subprocess
 import sys
+import time
 
 log = logging.getLogger("main")
 
 # 本次启动的命令行覆盖项（单次有效，不写入长期配置）；播放器子进程透传复用
 _CLI_OVERRIDES = {}
 _CLI_PROBLEMS = []
+
+MUTEX_NAME = "CountdownDesktop_Single"
+QUIT_EVENT_NAME = "CountdownDesktop_Quit"
+PID_FILE = "main.pid"  # 位于 config_dir() 下
+
+WAIT_OBJECT_0 = 0
+EVENT_MODIFY_STATE = 0x0002
 
 
 def _setup_logging() -> None:
@@ -67,6 +81,41 @@ def _spawn_cmd(mode: str) -> list:
     return base + cli.serialize(_CLI_OVERRIDES)
 
 
+def _pid_path() -> str:
+    from . import config
+    return os.path.join(config.config_dir(), PID_FILE)
+
+
+# ---------------- Win32 命名事件（跨进程退出信号） ----------------
+def _create_quit_event():
+    """创建/打开命名退出事件（手动重置，初始无信号），返回句柄。"""
+    h = ctypes.windll.kernel32.CreateEventW(None, True, False, QUIT_EVENT_NAME)
+    if h:
+        # 若打开的是已有事件，显式重置为无信号
+        ctypes.windll.kernel32.ResetEvent(h)
+    return h or None
+
+
+def _open_quit_event():
+    """打开已存在的命名退出事件，返回句柄或 None。"""
+    h = ctypes.windll.kernel32.OpenEventW(EVENT_MODIFY_STATE, False, QUIT_EVENT_NAME)
+    return h or None
+
+
+def _set_event(h) -> None:
+    ctypes.windll.kernel32.SetEvent(h)
+
+
+def _event_signaled(h) -> bool:
+    """非阻塞检查事件是否已触发。"""
+    return ctypes.windll.kernel32.WaitForSingleObject(h, 0) == WAIT_OBJECT_0
+
+
+def _close_handle(h) -> None:
+    if h:
+        ctypes.windll.kernel32.CloseHandle(h)
+
+
 class App:
     def __init__(self):
         from PySide6.QtWidgets import (QApplication, QSystemTrayIcon, QMenu,
@@ -87,14 +136,14 @@ class App:
                 None, "Countdown Desktop",
                 "以下命令行参数无法识别，已忽略：\n" + "\n".join(_CLI_PROBLEMS))
 
-        self.mutex = win32.create_single_instance_mutex("CountdownDesktop_Single")
+        # 单实例 + 接管：若已有实例在运行，通知其退出后接管
+        self.quit_event = None
+        self.quit_timer = None
+        self.mutex = self._acquire_mutex_with_takeover()
         if self.mutex is None:
-            if _CLI_OVERRIDES:
-                QMessageBox.warning(
-                    None, "Countdown Desktop",
-                    "程序已在运行。带参数启动需要先退出当前实例。")
-            log.info("another instance running, exit")
             raise SystemExit(0)
+        self._write_pid()
+        self._init_quit_event()
 
         self.cfg = config.load()
         cli.apply(_CLI_OVERRIDES, self.cfg)   # CLI 覆盖只改内存，不落盘
@@ -143,6 +192,108 @@ class App:
 
         if self.cfg["wallpaper"]["enabled"]:
             self.start_wallpaper()
+
+    # ---------------- 单实例接管 ----------------
+    def _write_pid(self) -> None:
+        try:
+            with open(_pid_path(), "w", encoding="utf-8") as f:
+                f.write(str(os.getpid()))
+        except OSError:
+            log.exception("write pid failed")
+
+    def _remove_pid(self) -> None:
+        try:
+            os.remove(_pid_path())
+        except OSError:
+            pass
+
+    def _init_quit_event(self) -> None:
+        """创建退出事件并启动轮询定时器，接收新实例的退出信号。"""
+        self.quit_event = _create_quit_event()
+        if self.quit_event is None:
+            log.warning("create quit event failed: %s", ctypes.get_last_error())
+            return
+        from PySide6.QtCore import QTimer
+        self.quit_timer = QTimer()
+        self.quit_timer.timeout.connect(self._check_quit_event)
+        self.quit_timer.start(250)
+        log.info("quit event listening (%s)", QUIT_EVENT_NAME)
+
+    def _check_quit_event(self) -> None:
+        if self.quit_event is not None and _event_signaled(self.quit_event):
+            log.info("quit event signaled by another instance, exiting")
+            self.quit()
+
+    def _acquire_mutex_with_takeover(self):
+        """获取单实例互斥量；若被占用，通知旧实例退出后接管。
+
+        返回 mutex 句柄或 None（接管失败）。
+        """
+        from . import win32
+        mutex = win32.create_single_instance_mutex(MUTEX_NAME)
+        if mutex is not None:
+            return mutex
+
+        log.info("another instance running, attempting takeover")
+        # 1) 优雅：触发命名退出事件，旧实例的轮询定时器会调用 quit()
+        self._signal_old_to_quit()
+        if self._wait_mutex(5.0):
+            log.info("takeover succeeded (graceful)")
+            return win32.create_single_instance_mutex(MUTEX_NAME)
+
+        # 2) 兜底：按 PID 文件强杀旧进程树（含播放器子进程）
+        log.warning("graceful takeover timeout, force killing old instance")
+        self._force_kill_old()
+        if self._wait_mutex(3.0):
+            log.info("takeover succeeded (force)")
+            return win32.create_single_instance_mutex(MUTEX_NAME)
+
+        QMessageBox.warning(
+            None, "Countdown Desktop",
+            "无法接管已运行的实例，请手动退出后重试。")
+        return None
+
+    @staticmethod
+    def _signal_old_to_quit() -> None:
+        """打开旧实例的命名退出事件并触发。"""
+        h = _open_quit_event()
+        if h is None:
+            log.warning("quit event not found, old instance may not be listening")
+            return
+        _set_event(h)
+        _close_handle(h)
+        log.info("quit event signaled to old instance")
+
+    @staticmethod
+    def _wait_mutex(timeout: float) -> bool:
+        """轮询等待互斥量释放。"""
+        from . import win32
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            time.sleep(0.2)
+            m = win32.create_single_instance_mutex(MUTEX_NAME)
+            if m is not None:
+                # 拿到了就先释放，让调用方统一获取（避免句柄泄漏）
+                ctypes.windll.kernel32.CloseHandle(m)
+                return True
+        return False
+
+    @staticmethod
+    def _force_kill_old() -> None:
+        """按 PID 文件强杀旧主进程及其子进程树。"""
+        try:
+            with open(_pid_path(), "r", encoding="utf-8") as f:
+                pid = int(f.read().strip())
+        except (OSError, ValueError):
+            log.warning("pid file missing/invalid, skip force kill")
+            return
+        try:
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(pid)],
+                creationflags=subprocess.CREATE_NO_WINDOW, timeout=5)
+            log.info("force killed old instance pid=%s", pid)
+        except (subprocess.TimeoutExpired, OSError):
+            log.exception("force kill old pid=%s failed", pid)
 
     # ---------------- 托盘图标 ----------------
     def _apply_tray_icon_for_theme(self) -> None:
@@ -275,11 +426,15 @@ class App:
 
     def quit(self) -> None:
         log.info("quit")
+        if self.quit_timer is not None:
+            self.quit_timer.stop()
+        _close_handle(self.quit_event)
         self.stop_wallpaper()
         self._restore_wallpaper()
         if self.screensaver_active():
             self.screensaver_proc.terminate()
         self.tray.hide()
+        self._remove_pid()
         self.qapp.quit()
 
     def exec_(self) -> int:
@@ -301,7 +456,6 @@ def run() -> int:
 
 # 主题过滤器依赖：Qt 原生事件基类 + win32 消息结构（仅非 Windows 平台缺失，程序本身只跑在 Windows）
 from PySide6.QtCore import QAbstractNativeEventFilter  # noqa: E402
-import ctypes  # noqa: E402
 import ctypes.wintypes  # noqa: E402
 
 
