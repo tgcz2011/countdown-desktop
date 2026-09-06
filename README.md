@@ -41,6 +41,7 @@ CountdownDesktop.exe [参数...]
 
 | 参数 | 取值 | 说明 |
 |------|------|------|
+| `--quit` | — | 优雅退出正在运行的实例（不启动 GUI，供其他软件/脚本调用）；无实例运行时直接返回 |
 | `--exam` | `gaokao` \| `zhongkao` \| `custom` | 倒计时类型：高考（默认）/ 中考 / 自定义 |
 | `--wallpaper-url` | URL 或本地文件路径 | 壁纸源地址 |
 | `--wallpaper-enabled` | `on` \| `off` | 是否启用动态壁纸 |
@@ -67,6 +68,9 @@ CountdownDesktop.exe --exam custom --wallpaper-url https://example.com/countdown
 
 # 只改屏保触发时长与静音
 CountdownDesktop.exe --screensaver-timeout 300 --screensaver-mute on
+
+# 优雅退出正在运行的实例（供其他软件/脚本调用，不启动 GUI）
+CountdownDesktop.exe --quit
 ```
 
 规则说明：
@@ -75,6 +79,7 @@ CountdownDesktop.exe --screensaver-timeout 300 --screensaver-mute on
 - 参数会同步生效于壁纸/屏保播放器子进程；也可以直接对播放器传参，如 `python run.py player wallpaper --exam zhongkao`。
 - 覆盖只作用于内存；例外：本次会话中若手动打开设置并点「保存」，界面当前值会写入配置（所见即所得）。
 - **单实例接管**：若已有实例在运行，新启动的实例会自动让旧实例优雅退出（停止壁纸/屏保、恢复桌面）后接管启动；旧实例无响应时自动强杀其进程树。GUI 与带参数启动可互相接管，后启动者覆盖先启动者的效果。
+- **`--quit` 退出命令**：不启动 GUI，直接通知运行中的实例优雅退出（停止壁纸/屏保、恢复桌面、退出托盘）；5 秒未响应则强杀进程树。退出码 0 = 成功（或无实例运行），1 = 失败。适合其他软件、脚本或任务计划调用。
 
 ## 开发与构建
 

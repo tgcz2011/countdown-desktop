@@ -30,6 +30,7 @@
 | **v3.1.1.1** | 同上 | 修复 v3.1.1.0 画幅模板 bug（d 升）：fit 样式段用 % 拼接却写了 .format 的 {{}} 转义，浏览器收到非法 CSS 整段丢弃，视频/图片失去铺满样式缩在左上角（网页源不走内联模板不受影响）；改为单花括号，并新增回归测试：禁止 {{ 漏入 HTML、逐 fit/kind 断言 object-fit 规则存在且合法 |
 | **v3.1.2.0** | 同上 | 关于页完善（c 升）：新增 GitHub 仓库/反馈链接、GPL-3.0 许可说明、Lively Wallpaper（rocksdanister）鸣谢；新增检查更新（GitHub Releases API，去点数值比较）+ 一键更新（下载安装包到 %TEMP%，批处理 taskkill 后 Inno /SILENT /RESTARTAPPLICATIONS 静默装并重启）+ 启动自动检查（仅提示不自动下载，可关）；新模块 app/update.py（QNetworkAccessManager 异步，信号驱动） |
 | **v3.2.0.0** | 同上 | 中高考切换 + 命令行参数（c 升 + c 升）：①「倒计时」设置页：高考/中考/自定义三态（高考=原默认 `countdown`，中考=`countdown-junior`；预设模式壁纸/屏保统一用预设地址且输入框只读，自定义模式两者分别可填）；config 新增 exam_type，旧版配置无该字段时按存量 URL 推断迁移（双高考→gaokao、双中考→zhongkao、其余→custom，升级前后行为一致）；② 新模块 app/cli.py：全部设置可通过 `--exam/--wallpaper-url/--screensaver-timeout/--video-loop…` 等参数单次覆盖（仅内存不落盘），主进程 _spawn_cmd 把参数透传给播放器子进程、refresh_wallpaper 重新套用；--help 弹窗显示用法；未知参数弹窗警告并忽略；③ 单实例接管：命名互斥量 CountdownDesktop_Single + 命名事件 CountdownDesktop_Quit（250ms 轮询）+ PID 文件 main.pid；新实例检测到互斥量被占时 SetEvent 通知旧实例 quit()（优雅：停壁纸/恢复桌面/删 pid/退托盘），5s 未退则 taskkill /F /T 强杀进程树，然后接管；GUI↔CLI 可互相接管；④ 单实例检查移到 QApplication 创建之后（消息弹窗依赖 qapp）；⑤ 新增 tools/test_cli.py 回归测试（解析/序列化/覆盖/migration），tools/test_takeover.py 端到端接管测试，test_settings.py 改为隔离临时配置目录防污染 |
+| **v3.2.1.0** | 同上 | 新增 --quit 优雅退出命令（c 升）：run() 在创建 QApplication 之前检测 --quit，调用模块级 quit_running_instance()——检测互斥量判断是否有实例运行→SetEvent 通知优雅退出（5s）→超时 taskkill /F /T 强杀（3s）→返回退出码（0=成功/无实例，1=失败）；不启动 GUI、不创建托盘，供其他软件/脚本/任务计划调用；无实例时幂等返回 0。新增 tools/test_quit.py 端到端测试（有实例优雅退出+无实例幂等） |
 
 ## 三、架构
 
@@ -44,6 +45,7 @@ run.py player screensaver → pywebview 窗口 → 全屏 TOPMOST + 隐藏任务
 日志：%APPDATA%\CountdownDesktop\{main,player-wallpaper,player-screensaver}.log
 命令行覆盖：app/cli.py（主进程与播放器子进程共用；_spawn_cmd 透传 serialize 结果）
 单实例接管：互斥量 CountdownDesktop_Single + 命名事件 CountdownDesktop_Quit（250ms 轮询）+ PID 文件；新实例 SetEvent→旧实例 quit()，5s 超时 taskkill /F /T 兜底
+--quit 退出命令：run() 早于 QApplication 检测 → quit_running_instance()（SetEvent+等待+强杀兜底），不启动 GUI，退出码 0/1
 
 
 > 注：本文件中「云桌面抓不到壁纸层」类限制均为开发机 Windows Server 2022 云桌面特有环境问题，常规 Win10/11 物理机不受影响。
@@ -117,6 +119,7 @@ countdown-desktop/
 ├── tools/capture.py        开发验证截图（PrintWindow fullcontent）
 ├── tools/test_cli.py       命令行参数/覆盖/迁移回归测试（v3.2.0.0 新增，无需 GUI）
 ├── tools/test_takeover.py  单实例接管端到端测试（v3.2.0.0 新增，启动两个真实进程验证）
+├── tools/test_quit.py      --quit 优雅退出命令端到端测试（v3.2.1.0 新增）
 ├── tools/test_settings.py  设置界面渲染/保存测试（隔离临时配置目录）
 ├── build.ps1               本地一键构建
 ├── CountdownDesktop.spec   PyInstaller 规格
@@ -151,7 +154,7 @@ git tag v3.0.1.2; git push origin main v3.0.1.2   # Actions 自动 Release
 
 ## 八、版本规则
 
-a=大添加 b=大改 c=小添加 d=小改动；去掉 `.` 后数值必须严格大于上一版本。当前最高已发布 tag：v3.2.0.0（历史 v1/v2 tag 已废弃但保留）。
+a=大添加 b=大改 c=小添加 d=小改动；去掉 `.` 后数值必须严格大于上一版本。当前最高已发布 tag：v3.2.0.0；v3.2.1.0 待打 tag 发布（历史 v1/v2 tag 已废弃但保留）。
 
 ## 八·一、图标更换记录（v3.1.0.0）
 

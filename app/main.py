@@ -11,6 +11,9 @@
 （超时则按 PID 文件强杀进程树），然后接管启动——后启动的实例
 覆盖先启动的实例效果（GUI↔CLI 均可互相接管）。
 
+--quit 命令：不启动 GUI，直接通知运行中的实例优雅退出（同上机制），
+供其他软件/脚本调用；退出码 0=成功（或无实例），1=失败。
+
 命令行参数（单次有效，不写入长期配置）：见 app/cli.py。
 """
 import ctypes
@@ -114,6 +117,47 @@ def _event_signaled(h) -> bool:
 def _close_handle(h) -> None:
     if h:
         ctypes.windll.kernel32.CloseHandle(h)
+
+
+def quit_running_instance() -> int:
+    """优雅退出已运行的实例（供 --quit 命令使用，不启动 GUI）。
+
+    流程：检测是否有实例在运行 → 发命名退出事件 → 等待优雅退出（5s）
+    → 超时则按 PID 文件强杀进程树（3s）→ 返回。
+
+    返回 0 = 成功（或本就无实例运行），1 = 无法退出。
+    """
+    from . import win32
+    # 1) 检测是否有实例在运行
+    mutex = win32.create_single_instance_mutex(MUTEX_NAME)
+    if mutex is not None:
+        ctypes.windll.kernel32.CloseHandle(mutex)
+        log.info("quit requested but no instance running")
+        print("Countdown Desktop: 没有正在运行的实例。")
+        return 0
+
+    log.info("quit requested, signaling running instance to exit")
+    print("Countdown Desktop: 正在通知运行中的实例退出...")
+
+    # 2) 优雅：触发命名退出事件
+    App._signal_old_to_quit()
+    if App._wait_mutex(5.0):
+        log.info("running instance exited gracefully")
+        print("Countdown Desktop: 已优雅退出。")
+        return 0
+
+    # 3) 兜底：按 PID 文件强杀进程树
+    log.warning("graceful quit timeout, force killing")
+    print("Countdown Desktop: 优雅退出超时，强制结束进程...")
+    App._force_kill_old()
+    if App._wait_mutex(3.0):
+        log.info("running instance force killed")
+        print("Countdown Desktop: 已强制退出。")
+        return 0
+
+    log.error("failed to quit running instance")
+    print("Countdown Desktop: 无法退出运行中的实例，请手动结束进程。")
+    return 1
 
 
 class App:
@@ -444,6 +488,11 @@ class App:
 def run() -> int:
     global _CLI_OVERRIDES, _CLI_PROBLEMS
     _setup_logging()
+
+    # --quit：纯退出命令，不启动 GUI，直接通知运行中的实例优雅退出
+    if "--quit" in sys.argv:
+        return quit_running_instance()
+
     from . import cli
     _CLI_OVERRIDES, _CLI_PROBLEMS = cli.parse_argv(sys.argv)
     log.info("=== main start, pid=%d, cli overrides=%s ===", os.getpid(),

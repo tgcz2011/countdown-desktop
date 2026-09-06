@@ -23,6 +23,7 @@ log = logging.getLogger("cli")
 USAGE = (
     "Countdown Desktop 命令行参数（全部单次有效，不写入长期设置）\n"
     "\n"
+    "  --quit                             优雅退出正在运行的实例（不启动 GUI，供其他软件调用）\n"
     "  --exam gaokao|zhongkao|custom      倒计时类型：高考（默认）/ 中考 / 自定义\n"
     "  --wallpaper-url <URL>              壁纸源（网页地址或本地媒体文件路径）\n"
     "  --wallpaper-enabled on|off         是否启用动态壁纸\n"
@@ -41,6 +42,7 @@ USAGE = (
     "示例：\n"
     "  CountdownDesktop.exe --exam zhongkao\n"
     "  CountdownDesktop.exe --exam custom --wallpaper-url https://example.com\n"
+    "  CountdownDesktop.exe --quit\n"
 )
 
 
