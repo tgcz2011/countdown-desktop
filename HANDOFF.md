@@ -1,6 +1,6 @@
 # HANDOFF.md — Countdown Desktop 交接文档
 
-> 最后更新: 2026-09-05（v3.2.0.0，中高考切换 + 命令行参数单次覆盖）
+> 最后更新: 2026-09-06（v3.2.1.1，修复中考/高考预设模式启动时壁纸不启用）
 
 ## 一、需求（用户原始要求）
 
@@ -31,6 +31,7 @@
 | **v3.1.2.0** | 同上 | 关于页完善（c 升）：新增 GitHub 仓库/反馈链接、GPL-3.0 许可说明、Lively Wallpaper（rocksdanister）鸣谢；新增检查更新（GitHub Releases API，去点数值比较）+ 一键更新（下载安装包到 %TEMP%，批处理 taskkill 后 Inno /SILENT /RESTARTAPPLICATIONS 静默装并重启）+ 启动自动检查（仅提示不自动下载，可关）；新模块 app/update.py（QNetworkAccessManager 异步，信号驱动） |
 | **v3.2.0.0** | 同上 | 中高考切换 + 命令行参数（c 升 + c 升）：①「倒计时」设置页：高考/中考/自定义三态（高考=原默认 `countdown`，中考=`countdown-junior`；预设模式壁纸/屏保统一用预设地址且输入框只读，自定义模式两者分别可填）；config 新增 exam_type，旧版配置无该字段时按存量 URL 推断迁移（双高考→gaokao、双中考→zhongkao、其余→custom，升级前后行为一致）；② 新模块 app/cli.py：全部设置可通过 `--exam/--wallpaper-url/--screensaver-timeout/--video-loop…` 等参数单次覆盖（仅内存不落盘），主进程 _spawn_cmd 把参数透传给播放器子进程、refresh_wallpaper 重新套用；--help 弹窗显示用法；未知参数弹窗警告并忽略；③ 单实例接管：命名互斥量 CountdownDesktop_Single + 命名事件 CountdownDesktop_Quit（250ms 轮询）+ PID 文件 main.pid；新实例检测到互斥量被占时 SetEvent 通知旧实例 quit()（优雅：停壁纸/恢复桌面/删 pid/退托盘），5s 未退则 taskkill /F /T 强杀进程树，然后接管；GUI↔CLI 可互相接管；④ 单实例检查移到 QApplication 创建之后（消息弹窗依赖 qapp）；⑤ 新增 tools/test_cli.py 回归测试（解析/序列化/覆盖/migration），tools/test_takeover.py 端到端接管测试，test_settings.py 改为隔离临时配置目录防污染 |
 | **v3.2.1.0** | 同上 | 新增 --quit 优雅退出命令（c 升）：run() 在创建 QApplication 之前检测 --quit，调用模块级 quit_running_instance()——检测互斥量判断是否有实例运行→SetEvent 通知优雅退出（5s）→超时 taskkill /F /T 强杀（3s）→返回退出码（0=成功/无实例，1=失败）；不启动 GUI、不创建托盘，供其他软件/脚本/任务计划调用；无实例时幂等返回 0。新增 tools/test_quit.py 端到端测试（有实例优雅退出+无实例幂等） |
+| **v3.2.1.1** | 同上 | 修复中考/高考预设模式启动时壁纸不启用（d 升）：根因是 cli.apply 只改 exam_type 和 URL，不触碰 wallpaper/screensaver 的 enabled 字段——若用户此前关闭过壁纸（enabled=False），用 `--exam zhongkao` 或设置界面切到中考后，URL 已换成 countdown-junior 但 enabled 仍为 False，导致壁纸进程根本不 spawn。修复：① cli.apply 中显式 `--exam gaokao/zhongkao` 时自动把 wallpaper.enabled 和 screensaver.enabled 置 True（预设模式的核心用途就是显示倒计时）；显式 `--wallpaper-enabled off` 仍优先，尊重用户主动关闭。② 设置界面 _on_exam_changed 新增 auto_enable 参数：用户手动切到高考/中考时自动勾选两个启用框，load_all 同步时传 auto_enable=False 不覆盖已保存状态。回归测试覆盖 5 种场景（zhongkao/gaokao 自动启用、custom 不自动启用、无参保持原状态、显式 off 优先） |
 
 ## 三、架构
 
@@ -154,7 +155,7 @@ git tag v3.0.1.2; git push origin main v3.0.1.2   # Actions 自动 Release
 
 ## 八、版本规则
 
-a=大添加 b=大改 c=小添加 d=小改动；去掉 `.` 后数值必须严格大于上一版本。当前最高已发布 tag：v3.2.1.0（历史 v1/v2 tag 已废弃但保留）。
+a=大添加 b=大改 c=小添加 d=小改动；去掉 `.` 后数值必须严格大于上一版本。当前最高已发布 tag：v3.2.1.1（历史 v1/v2 tag 已废弃但保留）。
 
 ## 八·一、图标更换记录（v3.1.0.0）
 

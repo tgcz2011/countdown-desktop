@@ -14,6 +14,8 @@
   也可直接对播放器传参：run.py player wallpaper --exam zhongkao。
 - 显式 --wallpaper-url/--screensaver-url 优先于 --exam 预设；
   只传地址不传 --exam 时，倒计时类型自动视为「自定义」。
+- --exam gaokao/zhongkao 会自动启用壁纸与屏保（预设模式即用于显示倒计时，
+  若此前用户关闭过壁纸，不自动启用会导致"选了中考却没壁纸"）。
 """
 import argparse
 import logging
@@ -120,10 +122,17 @@ def apply(overrides: dict, cfg: dict) -> dict:
 
     顺序：exam 预设解析 → 显式 URL 覆盖（优先）。未传 --exam 但有显式
     URL 时，倒计时类型自动转为 custom，保证与设置界面语义一致。
+
+    当用户明确通过 --exam gaokao/zhongkao 选择预设倒计时模式时，自动
+    启用壁纸和屏保——预设模式的核心用途就是显示倒计时，若此前用户
+    关闭过壁纸（enabled=False），不自动启用会导致"选了中考却没壁纸"。
     """
     from . import config
     if "exam" in overrides:
         cfg["exam_type"] = overrides["exam"]
+        if overrides["exam"] in ("gaokao", "zhongkao"):
+            cfg["wallpaper"]["enabled"] = True
+            cfg["screensaver"]["enabled"] = True
     config.resolve_exam(cfg)
     if "wallpaper_url" in overrides:
         cfg["wallpaper"]["url"] = overrides["wallpaper_url"]

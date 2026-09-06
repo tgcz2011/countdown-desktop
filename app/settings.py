@@ -165,8 +165,13 @@ class SettingsDialog(QDialog):
         layout.addStretch()
         return page
 
-    def _on_exam_changed(self) -> None:
-        """按倒计时类型同步壁纸/屏保源输入框：预设时只读显示预设地址，自定义时可编辑。"""
+    def _on_exam_changed(self, auto_enable: bool = True) -> None:
+        """按倒计时类型同步壁纸/屏保源输入框：预设时只读显示预设地址，自定义时可编辑。
+
+        auto_enable=True（用户手动切换时）：切到高考/中考预设自动勾选启用壁纸/屏保，
+        因为预设模式的核心用途就是显示倒计时；auto_enable=False（load_all 同步时）
+        不改动勾选态，保持用户已保存的配置。
+        """
         from . import config
         et = self.cmb_exam.currentData() or "gaokao"
         custom = (et == "custom")
@@ -178,6 +183,9 @@ class SettingsDialog(QDialog):
             else:
                 txt.setPlaceholderText("跟随「倒计时」页：%s" % config.EXAM_URLS[et])
                 txt.setText(config.EXAM_URLS[et])
+        if auto_enable and not custom:
+            self.chk_wall.setChecked(True)
+            self.chk_ss.setChecked(True)
 
     def _make_wallpaper_page(self) -> QWidget:
         page = QWidget()
@@ -437,7 +445,7 @@ class SettingsDialog(QDialog):
             self.txt_wall_url.setText("" if wall_url == config.DEFAULT_URL else wall_url)
             ss_url = cfg["screensaver"]["url"]
             self.txt_ss_url.setText("" if ss_url == config.DEFAULT_URL else ss_url)
-        self._on_exam_changed()
+        self._on_exam_changed(auto_enable=False)
         self.chk_wall.setChecked(bool(cfg["wallpaper"]["enabled"]))
         self.chk_ss.setChecked(bool(cfg["screensaver"]["enabled"]))
         try:
