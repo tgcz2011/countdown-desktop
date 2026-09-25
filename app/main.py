@@ -31,6 +31,7 @@ _CLI_PROBLEMS = []
 
 MUTEX_NAME = "CountdownDesktop_Single"
 QUIT_EVENT_NAME = "CountdownDesktop_Quit"
+SHOW_SETTINGS_EVENT_NAME = "CountdownDesktop_ShowSettings"
 PID_FILE = "main.pid"  # 位于 config_dir() 下
 
 WAIT_OBJECT_0 = 0
@@ -188,6 +189,7 @@ class App:
             raise SystemExit(0)
         self._write_pid()
         self._init_quit_event()
+        self._init_show_settings_event()
 
         self.cfg = config.load()
         cli.apply(_CLI_OVERRIDES, self.cfg)   # CLI 覆盖只改内存，不落盘
@@ -264,6 +266,7 @@ class App:
         from PySide6.QtCore import QTimer
         self.quit_timer = QTimer()
         self.quit_timer.timeout.connect(self._check_quit_event)
+        self.quit_timer.timeout.connect(self._check_show_settings_event)
         self.quit_timer.start(250)
         log.info("quit event listening (%s)", QUIT_EVENT_NAME)
 
@@ -271,6 +274,23 @@ class App:
         if self.quit_event is not None and _event_signaled(self.quit_event):
             log.info("quit event signaled by another instance, exiting")
             self.quit()
+
+    def _init_show_settings_event(self) -> None:
+        """创建设置弹出事件，复用 quit_timer 轮询。"""
+        h = ctypes.windll.kernel32.CreateEventW(None, True, False, SHOW_SETTINGS_EVENT_NAME)
+        if h:
+            ctypes.windll.kernel32.ResetEvent(h)
+            self.show_settings_event = h
+            log.info("show-settings event listening (%s)", SHOW_SETTINGS_EVENT_NAME)
+        else:
+            self.show_settings_event = None
+            log.warning("create show-settings event failed: %s", ctypes.get_last_error())
+
+    def _check_show_settings_event(self) -> None:
+        if self.show_settings_event is not None and _event_signaled(self.show_settings_event):
+            ctypes.windll.kernel32.ResetEvent(self.show_settings_event)
+            log.info("show-settings event signaled, opening settings")
+            self.open_settings("general")
 
     def _acquire_mutex_with_takeover(self):
         """获取单实例互斥量；若被占用，通知旧实例退出后接管。
@@ -311,6 +331,18 @@ class App:
         _set_event(h)
         _close_handle(h)
         log.info("quit event signaled to old instance")
+
+
+    @staticmethod
+    def _signal_show_settings() -> None:
+        """通知已运行的实例弹出设置窗口（不关闭、不接管）。"""
+        h = ctypes.windll.kernel32.OpenEventW(EVENT_MODIFY_STATE, False, SHOW_SETTINGS_EVENT_NAME)
+        if not h:
+            log.warning("show-settings event not found, running instance may be old version")
+            return
+        ctypes.windll.kernel32.SetEvent(h)
+        ctypes.windll.kernel32.CloseHandle(h)
+        log.info("show-settings event signaled to running instance")
 
     @staticmethod
     def _wait_mutex(timeout: float) -> bool:
@@ -477,6 +509,7 @@ class App:
         if self.quit_timer is not None:
             self.quit_timer.stop()
         _close_handle(self.quit_event)
+        _close_handle(self.show_settings_event)
         self.stop_wallpaper()
         self._restore_wallpaper()
         if self.screensaver_active():
@@ -496,6 +529,15 @@ def run() -> int:
     # --quit：纯退出命令，不启动 GUI，直接通知运行中的实例优雅退出
     if "--quit" in sys.argv:
         return quit_running_instance()
+    # --settings：若已有实例在运行，发事件通知它弹出设置后退出（不接管、不关闭倒计时）
+    if "--settings" in sys.argv:
+        from . import win32
+        mutex = win32.create_single_instance_mutex(MUTEX_NAME)
+        if mutex is None:
+            App._signal_show_settings()
+            print("Countdown Desktop: 已通知运行中的实例打开设置窗口")
+            return 0
+        ctypes.windll.kernel32.CloseHandle(mutex)
 
     from . import cli
     _CLI_OVERRIDES, _CLI_PROBLEMS = cli.parse_argv(sys.argv)
