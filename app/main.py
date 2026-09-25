@@ -236,6 +236,10 @@ class App:
 
         if self.cfg["wallpaper"]["enabled"]:
             self.start_wallpaper()
+        # --settings：启动后自动弹出设置窗口（供外部启动器一键唤起）
+        if _CLI_OVERRIDES.get("settings"):
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, lambda: self.open_settings("general"))
 
     # ---------------- 单实例接管 ----------------
     def _write_pid(self) -> None:

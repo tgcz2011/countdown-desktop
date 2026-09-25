@@ -39,6 +39,7 @@ USAGE = (
     "  --video-loop on|off                视频循环播放\n"
     "  --run-at-startup on|off            本次会话的开机自启显示状态（不写注册表）\n"
     "  --auto-check-update on|off         本次会话是否自动检查更新\n"
+"  --settings                         启动后自动弹出设置窗口\n"
     "  --help / -h                        显示本帮助\n"
     "\n"
     "示例：\n"
