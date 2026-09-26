@@ -322,7 +322,11 @@ class App:
 
     def apply_overrides_and_restart(self, overrides: dict) -> None:
         """应用 CLI 覆盖参数并重启壁纸/屏保进程（供已有实例切换考试类型）。"""
+        global _CLI_OVERRIDES
         from . import cli
+        # 合并到全局覆盖，确保 _spawn_cmd 透传给壁纸/屏保子进程的参数正确
+        # （否则已有实例用 --settings 启动时，_CLI_OVERRIDES 里没有 exam，子进程会读本地配置）
+        _CLI_OVERRIDES.update(overrides)
         cli.apply(overrides, self.cfg)
         # 壁纸：根据配置决定启动/停止/重启（即使之前没运行，启用了也要启动）
         wallpaper_enabled = self.cfg.get("wallpaper", {}).get("enabled", True)
