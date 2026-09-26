@@ -79,6 +79,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--video-loop", type=_bool, metavar="on|off")
     p.add_argument("--run-at-startup", type=_bool, metavar="on|off")
     p.add_argument("--auto-check-update", type=_bool, metavar="on|off")
+    p.add_argument("--settings", action="store_true", help="启动后自动弹出设置窗口")
     return p
 
 
