@@ -1,23 +1,22 @@
 # -*- coding: utf-8 -*-
-"""检查更新：GitHub Releases API 查询 + Qt 后台下载 + 静默安装重启。
+"""检查更新：GitHub Releases API 查询 + 多镜像源后台下载 + SHA-256 校验 + 静默安装重启。
 
-流程：
-  check()     异步请求 releases/latest，去点数值比较（与项目版本规则一致）
-  download()  二次请求 release JSON 拿安装包资产 URL，流式下载到 %TEMP%
-  install()   生成批处理：taskkill 本程序 → 静默安装（Inno /SILENT 等）→ 重启；
-              调用方随后退出主程序，退出即更新。
-
-全部走 QNetworkAccessManager 异步，不卡设置窗口 UI。
+移植自 Idiot Launch 的成熟更新机制：
+- 7 个下载镜像源自动 fallback（GitHub 直连 → gh-proxy → ghfast → ghproxy.net → ...）
+- 动态超时：第 1 轮 1x，第 2 轮 2x，第 3 轮 3x（避免短超时内全失败后永远更新不了）
+- SHA-256 校验：Release body 里附带的哈希对不上就拒绝更新
+- 全部走 QNetworkAccessManager 异步，不卡设置窗口 UI
 """
+import hashlib
 import json
 import logging
 import os
 import re
 import subprocess
-import sys
 import tempfile
+import time
 
-from PySide6.QtCore import QObject, QUrl, Signal
+from PySide6.QtCore import QObject, QUrl, Signal, QTimer
 from PySide6.QtNetwork import (QNetworkAccessManager, QNetworkReply,
                                QNetworkRequest)
 
@@ -31,6 +30,18 @@ ASSET_RE = re.compile(r"\.exe$", re.I)
 UA = "CountdownDesktop-Updater"
 MIN_INSTALLER_BYTES = 1 << 20  # 安装包约 37MB，小于 1MB 视为被拦截/损坏
 
+# 下载镜像源（前缀, 基础超时秒数）——与 Idiot Launch 保持一致
+DOWNLOAD_MIRRORS = [
+    ("", 60),                           # GitHub 直连
+    ("https://gh-proxy.com/", 120),     # GH-Proxy 2.0
+    ("https://ghfast.top/", 120),       # ghfast
+    ("https://ghproxy.net/", 120),      # ghproxy.net
+    ("https://gh.llkk.cc/", 120),       # LLKK
+    ("https://hub.gitmirror.com/", 120),# GitMirror
+    ("https://ghproxy.homeboyc.cn/", 120),  # 大文件稳定
+]
+DOWNLOAD_RETRY = 3  # 最多重试 3 轮
+
 
 def _to_num(v: str) -> int:
     """3.1.1.1 -> 3111（与项目 a.b.c.d 去点严格递增规则一致）。"""
@@ -40,6 +51,48 @@ def _to_num(v: str) -> int:
 
 def is_newer(remote: str, local: str) -> bool:
     return _to_num(remote) > _to_num(local)
+
+
+def _parse_sha256_from_body(body: str, filename: str) -> str:
+    """从 Release body 里解析指定文件的 SHA-256 哈希。
+    支持格式：`filename.exe: <hash>` 或 `<hash>  filename.exe`
+    """
+    if not body:
+        return ""
+    basename = os.path.basename(filename)
+    # 格式1: filename: hash
+    m = re.search(re.escape(basename) + r"\s*[:：]\s*([a-fA-F0-9]{64})", body)
+    if m:
+        return m.group(1).lower()
+    # 格式2: hash  filename
+    m = re.search(r"\b([a-fA-F0-9]{64})\b\s+\*?" + re.escape(basename), body)
+    if m:
+        return m.group(1).lower()
+    # 格式3: 单独一行 hash（取第一个 64 位十六进制）
+    m = re.search(r"\b([a-fA-F0-9]{64})\b", body)
+    if m:
+        return m.group(1).lower()
+    return ""
+
+
+def verify_sha256(filepath: str, expected: str) -> bool:
+    """校验文件 SHA-256。expected 为空时跳过校验（返回 True）。"""
+    if not expected:
+        return True
+    if not os.path.isfile(filepath):
+        return False
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while True:
+            chunk = f.read(65536)
+            if not chunk:
+                break
+            h.update(chunk)
+    actual = h.hexdigest().lower()
+    ok = actual == expected.lower()
+    if not ok:
+        log.warning("SHA-256 mismatch: expected=%s actual=%s", expected, actual)
+    return ok
 
 
 class UpdateChecker(QObject):
@@ -56,9 +109,14 @@ class UpdateChecker(QObject):
         self.nam.finished.connect(self._on_finished)
         self._phase = "idle"  # idle / check / meta / asset
         self._latest = ""
+        self._release_body = ""
         self._reply = None
         self._fh = None
         self._file_path = ""
+        self._original_url = ""
+        self._mirror_index = 0
+        self._attempt = 0
+        self._expected_sha256 = ""
 
     # ---------------- 公共动作 ----------------
     def check(self) -> None:
@@ -71,6 +129,8 @@ class UpdateChecker(QObject):
             self.downloadFinished.emit(False, "请先检查更新")
             return
         self._phase = "meta"
+        self._mirror_index = 0
+        self._attempt = 0
         self.nam.get(self._req(REPO_API))
 
     def cancel(self) -> None:
@@ -79,12 +139,13 @@ class UpdateChecker(QObject):
 
     # ---------------- 内部 ----------------
     @staticmethod
-    def _req(url: str) -> QNetworkRequest:
+    def _req(url: str, timeout_ms: int = 120000) -> QNetworkRequest:
         req = QNetworkRequest(QUrl(url))
         req.setHeader(QNetworkRequest.UserAgentHeader, UA)
         req.setRawHeader(b"Accept", b"application/vnd.github+json")
         req.setAttribute(QNetworkRequest.RedirectPolicyAttribute,
                          QNetworkRequest.RedirectPolicy.NoLessSafeRedirectPolicy)
+        req.setTransferTimeout(timeout_ms)
         return req
 
     def _fail(self, msg: str) -> None:
@@ -106,6 +167,11 @@ class UpdateChecker(QObject):
     def _on_finished(self, reply: QNetworkReply) -> None:
         phase = self._phase
         if reply.error() != QNetworkReply.NetworkError.NoError:
+            # 下载资产时失败：尝试下一个镜像源
+            if phase == "asset":
+                self._try_next_mirror("网络错误：%s" % reply.errorString())
+                reply.deleteLater()
+                return
             self._fail("网络错误：%s" % reply.errorString())
             reply.deleteLater()
             return
@@ -131,11 +197,12 @@ class UpdateChecker(QObject):
             return
         tag = str(data.get("tag_name", "")).lstrip("vV")
         self._latest = tag
+        self._release_body = str(data.get("body") or "")
         from . import version
         if not is_newer(tag, version.VERSION):
             self.checkFinished.emit(False, tag, "")
             return
-        notes = str(data.get("body") or "").strip()
+        notes = self._release_body.strip()
         if len(notes) > 500:
             notes = notes[:500] + "..."
         self.checkFinished.emit(True, tag, notes)
@@ -149,12 +216,59 @@ class UpdateChecker(QObject):
             return
         url = str(asset.get("browser_download_url", ""))
         name = str(asset.get("name", "CountdownDesktop_Setup.exe"))
+        self._original_url = url
         self._file_path = os.path.join(tempfile.gettempdir(), name)
+        # 从 release body 解析 SHA-256
+        self._expected_sha256 = _parse_sha256_from_body(
+            str(data.get("body") or ""), name)
+        self._start_download()
+
+    def _start_download(self) -> None:
+        """用当前镜像源开始下载。"""
+        mirror_prefix, base_timeout = DOWNLOAD_MIRRORS[self._mirror_index]
+        timeout_multiplier = self._attempt + 1
+        timeout_ms = base_timeout * timeout_multiplier * 1000
+        full_url = mirror_prefix + self._original_url if mirror_prefix else self._original_url
+        source_name = mirror_prefix.rstrip("/") if mirror_prefix else "GitHub direct"
+        log.info("下载尝试 (%d/%d) [%s] 超时%ds: %s",
+                 self._attempt + 1, DOWNLOAD_RETRY, source_name,
+                 timeout_ms // 1000, os.path.basename(self._file_path))
         self._phase = "asset"
-        rep = self.nam.get(self._req(url))
+        # 清理部分下载的文件
+        if self._fh is not None:
+            try:
+                self._fh.close()
+            except OSError:
+                pass
+            self._fh = None
+        if os.path.exists(self._file_path):
+            try:
+                os.remove(self._file_path)
+            except OSError:
+                pass
+        rep = self.nam.get(self._req(full_url, timeout_ms))
         self._reply = rep
         rep.downloadProgress.connect(self._on_progress)
         rep.readyRead.connect(self._on_data)
+
+    def _try_next_mirror(self, reason: str) -> None:
+        """下载失败：尝试下一个镜像源，或下一轮重试。"""
+        log.info("下载失败 [%s]: %s",
+                 DOWNLOAD_MIRRORS[self._mirror_index][0] or "direct", reason)
+        self._mirror_index += 1
+        if self._mirror_index >= len(DOWNLOAD_MIRRORS):
+            # 所有镜像源都失败，下一轮重试（递增超时）
+            self._mirror_index = 0
+            self._attempt += 1
+            if self._attempt >= DOWNLOAD_RETRY:
+                self._fail("所有镜像源均下载失败，请检查网络或手动下载")
+                return
+            log.info("所有源失败，第 %d 轮重试（超时 x%d）",
+                     self._attempt + 1, self._attempt + 1)
+            # 等 5 秒再重试
+            QTimer.singleShot(5000, self._start_download)
+            return
+        self._start_download()
 
     def _on_data(self) -> None:
         rep = self.sender()
@@ -172,8 +286,14 @@ class UpdateChecker(QObject):
             self._fh = None
         size = os.path.getsize(self._file_path) if os.path.exists(self._file_path) else 0
         if size < MIN_INSTALLER_BYTES:
-            self._fail("下载文件过小（%d 字节），可能被网络策略拦截" % size)
+            self._try_next_mirror("下载文件过小（%d 字节）" % size)
             return
+        # SHA-256 校验
+        if self._expected_sha256:
+            if not verify_sha256(self._file_path, self._expected_sha256):
+                self._try_next_mirror("SHA-256 校验失败")
+                return
+            log.info("SHA-256 校验通过")
         self._phase = "idle"
         self.downloadFinished.emit(True, self._file_path)
 
