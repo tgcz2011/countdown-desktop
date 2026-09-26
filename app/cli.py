@@ -111,9 +111,18 @@ def parse_argv(argv) -> tuple:
 
 
 def serialize(overrides: dict) -> list:
-    """把覆盖项序列化为 --key=value 形式，供播放器子进程复用。"""
+    """把覆盖项序列化为 --key=value 形式，供播放器子进程复用。
+
+    注意：--settings 是 store_true（不接受值），必须输出为 --settings 而非 --settings=true，
+    否则 argparse 会报 "ignored explicit argument 'true'" 导致整个解析失败，
+    连带着 --exam 等参数也被丢弃，子进程回退到读取本地配置。
+    """
     out = []
     for key, val in overrides.items():
+        if key == "settings":
+            if val:
+                out.append("--settings")
+            continue
         if isinstance(val, bool):
             val = "true" if val else "false"
         out.append("--%s=%s" % (key.replace("_", "-"), val))

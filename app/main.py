@@ -338,8 +338,8 @@ class App:
         elif wallpaper_running:
             self.stop_wallpaper()
             self._restore_wallpaper()
-        # 屏保：根据配置决定启动/停止/重启
-        screensaver_enabled = self.cfg.get("screensaver", {}).get("enabled", True)
+        # 屏保：只有正在运行时才用新配置重启，不主动启动
+        # （否则切换考试类型时系统已空闲很久，屏保会立即弹出打断用户）
         screensaver_running = (hasattr(self, "screensaver_proc") and self.screensaver_proc
                                and self.screensaver_proc.poll() is None)
         if screensaver_running:
@@ -349,7 +349,6 @@ class App:
             except Exception:
                 self.screensaver_proc.kill()
             self.screensaver_proc = None
-        if screensaver_enabled:
             self.start_screensaver()
         log.info("overrides applied and players restarted")
 
