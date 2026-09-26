@@ -32,6 +32,8 @@ _CLI_PROBLEMS = []
 MUTEX_NAME = "CountdownDesktop_Single"
 QUIT_EVENT_NAME = "CountdownDesktop_Quit"
 SHOW_SETTINGS_EVENT_NAME = "CountdownDesktop_ShowSettings"
+SWITCH_EXAM_EVENT_NAME = "CountdownDesktop_SwitchExam"
+SWITCH_CMD_FILE = os.path.join(os.environ.get("TEMP", "."), "countdown_switch.json")
 PID_FILE = "main.pid"  # 位于 config_dir() 下
 
 WAIT_OBJECT_0 = 0
@@ -190,6 +192,7 @@ class App:
         self._write_pid()
         self._init_quit_event()
         self._init_show_settings_event()
+        self._init_switch_exam_event()
 
         self.cfg = config.load()
         cli.apply(_CLI_OVERRIDES, self.cfg)   # CLI 覆盖只改内存，不落盘
@@ -267,6 +270,7 @@ class App:
         self.quit_timer = QTimer()
         self.quit_timer.timeout.connect(self._check_quit_event)
         self.quit_timer.timeout.connect(self._check_show_settings_event)
+        self.quit_timer.timeout.connect(self._check_switch_exam_event)
         self.quit_timer.start(250)
         log.info("quit event listening (%s)", QUIT_EVENT_NAME)
 
@@ -291,6 +295,51 @@ class App:
             ctypes.windll.kernel32.ResetEvent(self.show_settings_event)
             log.info("show-settings event signaled, opening settings")
             self.open_settings("general")
+
+    def _init_switch_exam_event(self) -> None:
+        """创建切换考试事件，复用 quit_timer 轮询。"""
+        h = ctypes.windll.kernel32.CreateEventW(None, True, False, SWITCH_EXAM_EVENT_NAME)
+        if h:
+            ctypes.windll.kernel32.ResetEvent(h)
+            self.switch_exam_event = h
+            log.info("switch-exam event listening (%s)", SWITCH_EXAM_EVENT_NAME)
+        else:
+            self.switch_exam_event = None
+            log.warning("create switch-exam event failed: %s", ctypes.get_last_error())
+
+    def _check_switch_exam_event(self) -> None:
+        if self.switch_exam_event is None or not _event_signaled(self.switch_exam_event):
+            return
+        ctypes.windll.kernel32.ResetEvent(self.switch_exam_event)
+        import json as _json
+        try:
+            with open(SWITCH_CMD_FILE, "r", encoding="utf-8") as f:
+                overrides = _json.load(f)
+            log.info("switch-exam event signaled: %s", overrides)
+            self.apply_overrides_and_restart(overrides)
+        except Exception:
+            log.exception("read switch cmd file failed")
+
+    def apply_overrides_and_restart(self, overrides: dict) -> None:
+        """应用 CLI 覆盖参数并重启壁纸/屏保进程（供已有实例切换考试类型）。"""
+        from . import cli
+        cli.apply(overrides, self.cfg)
+        # 重启壁纸进程
+        was_wallpaper = self.wallpaper_proc is not None and self.wallpaper_proc.poll() is None
+        if was_wallpaper:
+            self.stop_wallpaper()
+            self.start_wallpaper()
+        # 重启屏保进程
+        if hasattr(self, "screensaver_proc") and self.screensaver_proc and self.screensaver_proc.poll() is None:
+            self.screensaver_proc.terminate()
+            try:
+                self.screensaver_proc.wait(timeout=3)
+            except Exception:
+                self.screensaver_proc.kill()
+            self.screensaver_proc = None
+            if getattr(self.cfg, "screensaver_enabled", True):
+                self.start_screensaver()
+        log.info("overrides applied and players restarted")
 
     def _acquire_mutex_with_takeover(self):
         """获取单实例互斥量；若被占用，通知旧实例退出后接管。
@@ -343,6 +392,40 @@ class App:
         ctypes.windll.kernel32.SetEvent(h)
         ctypes.windll.kernel32.CloseHandle(h)
         log.info("show-settings event signaled to running instance")
+
+    @staticmethod
+    def _signal_switch_exam(overrides: dict) -> None:
+        """已有实例运行时：写命令文件 + 发命名事件，通知其切换考试类型。"""
+        import json as _json
+        try:
+            with open(SWITCH_CMD_FILE, "w", encoding="utf-8") as f:
+                _json.dump(overrides, f)
+        except Exception:
+            log.exception("write switch cmd file failed")
+        h = ctypes.windll.kernel32.OpenEventW(EVENT_MODIFY_STATE, False, SWITCH_EXAM_EVENT_NAME)
+        if not h:
+            log.warning("switch-exam event not found, running instance may be old version")
+            return
+        ctypes.windll.kernel32.SetEvent(h)
+        ctypes.windll.kernel32.CloseHandle(h)
+        log.info("switch-exam event signaled: %s", overrides)
+
+    @staticmethod
+    def _signal_switch_exam(overrides: dict) -> None:
+        """已有实例运行时：写命令文件 + 发命名事件，通知其切换考试类型。"""
+        import json as _json
+        try:
+            with open(SWITCH_CMD_FILE, "w", encoding="utf-8") as f:
+                _json.dump(overrides, f)
+        except Exception:
+            log.exception("write switch cmd file failed")
+        h = ctypes.windll.kernel32.OpenEventW(EVENT_MODIFY_STATE, False, SWITCH_EXAM_EVENT_NAME)
+        if not h:
+            log.warning("switch-exam event not found, running instance may be old version")
+            return
+        ctypes.windll.kernel32.SetEvent(h)
+        ctypes.windll.kernel32.CloseHandle(h)
+        log.info("switch-exam event signaled: %s", overrides)
 
     @staticmethod
     def _wait_mutex(timeout: float) -> bool:
@@ -545,6 +628,15 @@ def run() -> int:
              _CLI_OVERRIDES or "-")
     if _CLI_PROBLEMS:
         log.warning("unknown cli args ignored: %s", _CLI_PROBLEMS)
+    # 已有实例运行且传入了覆盖参数（如 --exam）：通知已有实例切换后退出，不接管
+    if _CLI_OVERRIDES:
+        from . import win32
+        _mutex = win32.create_single_instance_mutex(MUTEX_NAME)
+        if _mutex is None:
+            App._signal_switch_exam(_CLI_OVERRIDES)
+            print("Countdown Desktop: 已通知运行中的实例切换配置")
+            return 0
+        ctypes.windll.kernel32.CloseHandle(_mutex)
     app = App()
     return app.exec_()
 
