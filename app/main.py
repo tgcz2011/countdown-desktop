@@ -324,21 +324,29 @@ class App:
         """应用 CLI 覆盖参数并重启壁纸/屏保进程（供已有实例切换考试类型）。"""
         from . import cli
         cli.apply(overrides, self.cfg)
-        # 重启壁纸进程
-        was_wallpaper = self.wallpaper_proc is not None and self.wallpaper_proc.poll() is None
-        if was_wallpaper:
-            self.stop_wallpaper()
+        # 壁纸：根据配置决定启动/停止/重启（即使之前没运行，启用了也要启动）
+        wallpaper_enabled = self.cfg.get("wallpaper", {}).get("enabled", True)
+        wallpaper_running = self.wallpaper_proc is not None and self.wallpaper_proc.poll() is None
+        if wallpaper_enabled:
+            if wallpaper_running:
+                self.stop_wallpaper()
             self.start_wallpaper()
-        # 重启屏保进程
-        if hasattr(self, "screensaver_proc") and self.screensaver_proc and self.screensaver_proc.poll() is None:
+        elif wallpaper_running:
+            self.stop_wallpaper()
+            self._restore_wallpaper()
+        # 屏保：根据配置决定启动/停止/重启
+        screensaver_enabled = self.cfg.get("screensaver", {}).get("enabled", True)
+        screensaver_running = (hasattr(self, "screensaver_proc") and self.screensaver_proc
+                               and self.screensaver_proc.poll() is None)
+        if screensaver_running:
             self.screensaver_proc.terminate()
             try:
                 self.screensaver_proc.wait(timeout=3)
             except Exception:
                 self.screensaver_proc.kill()
             self.screensaver_proc = None
-            if getattr(self.cfg, "screensaver_enabled", True):
-                self.start_screensaver()
+        if screensaver_enabled:
+            self.start_screensaver()
         log.info("overrides applied and players restarted")
 
     def _acquire_mutex_with_takeover(self):
