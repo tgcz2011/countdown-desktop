@@ -75,10 +75,16 @@ def load() -> dict:
     都是中考地址→zhongkao，其余（曾自定义过）→custom。
     """
     cfg = json.loads(json.dumps(DEFAULTS))
-    try:
-        with open(config_path(), "r", encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, ValueError):
+    data = None
+    # 优先读主配置，损坏时尝试 .bak 备份
+    for path in (config_path(), config_path() + ".bak"):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            break
+        except (OSError, ValueError):
+            continue
+    if data is None:
         return cfg
     for section, values in data.items():
         if isinstance(values, dict) and isinstance(cfg.get(section), dict):
@@ -97,5 +103,18 @@ def load() -> dict:
 
 
 def save(cfg: dict) -> None:
-    with open(config_path(), "w", encoding="utf-8") as f:
+    """原子写入：先写 .tmp，再 os.replace 覆盖主文件，同时保留 .bak 备份。"""
+    main = config_path()
+    tmp = main + ".tmp"
+    bak = main + ".bak"
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
+    # 旧主文件转备份（如果存在）
+    try:
+        if os.path.isfile(main):
+            if os.path.isfile(bak):
+                os.remove(bak)
+            os.replace(main, bak)
+    except OSError:
+        pass
+    os.replace(tmp, main)

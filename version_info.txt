@@ -1,0 +1,29 @@
+# -*- mode: python ; coding: utf-8 -*-
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=(3, 2, 5, 4),
+    prodvers=(3, 2, 5, 4),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+      StringTable(
+        u'080404B0',
+        [StringStruct(u'CompanyName', u'tgcz2011'),
+        StringStruct(u'FileDescription', u'Countdown Desktop'),
+        StringStruct(u'FileVersion', u'3.2.5.4'),
+        StringStruct(u'InternalName', u'CountdownDesktop'),
+        StringStruct(u'LegalCopyright', u'Copyright (C) 2026 tgcz2011'),
+        StringStruct(u'OriginalFilename', u'CountdownDesktop.exe'),
+        StringStruct(u'ProductName', u'Countdown Desktop'),
+        StringStruct(u'ProductVersion', u'3.2.5.4')])
+      ]),
+    VarFileInfo([VarStruct(u'Translation', [0x0804, 0x04B0])])
+  ]
+)

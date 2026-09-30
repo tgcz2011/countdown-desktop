@@ -1,4 +1,4 @@
-# build.ps1 - local one-click build (PyInstaller + Inno Setup)
+﻿# build.ps1 - local one-click build (PyInstaller + Inno Setup)
 # usage: .\build.ps1 [-Version 3.0.0.0]
 param([string]$Version = "")
 
@@ -19,13 +19,15 @@ if (-not $Version) {
 }
 Write-Output "building version $Version"
 
-# 1) python deps
+# 1.5) Sync version to version_info.txt (PE metadata, via Python script to avoid PS encoding issues)
+& .\.venv\Scripts\python.exe tools\gen_version_info.py $Version "Countdown Desktop" "Countdown Desktop"
+
+# 2) PyInstaller
 if (-not (Test-Path .\.venv\Scripts\python.exe)) {
   Invoke-Step "venv" { python -m venv .venv }
 }
 Invoke-Step "pip" { .\.venv\Scripts\python.exe -m pip install -r requirements.txt pyinstaller }
 
-# 2) PyInstaller
 Invoke-Step "pyinstaller" { .\.venv\Scripts\python.exe -m PyInstaller --noconfirm CountdownDesktop.spec }
 
 # 3) locate ISCC (Inno Setup 6/7)

@@ -454,7 +454,14 @@ class App:
 
     @staticmethod
     def _force_kill_old() -> None:
-        """按 PID 文件强杀旧主进程及其子进程树。"""
+        """按 PID 文件强杀旧主进程及其子进程树。强杀前先还原壁纸，避免 WorkerW 层残留。"""
+        # 强杀前先还原壁纸（旧进程的壁纸窗口可能还附着在 WorkerW 上）
+        try:
+            from . import win32
+            if win32.refresh_desktop_wallpaper():
+                log.info("wallpaper restored before force kill")
+        except Exception:
+            log.exception("restore wallpaper before force kill failed")
         try:
             with open(_pid_path(), "r", encoding="utf-8") as f:
                 pid = int(f.read().strip())
@@ -468,6 +475,12 @@ class App:
             log.info("force killed old instance pid=%s", pid)
         except (subprocess.TimeoutExpired, OSError):
             log.exception("force kill old pid=%s failed", pid)
+        # 强杀后再还原一次兜底
+        try:
+            from . import win32
+            win32.refresh_desktop_wallpaper()
+        except Exception:
+            pass
 
     # ---------------- 托盘图标 ----------------
     def _apply_tray_icon_for_theme(self) -> None:

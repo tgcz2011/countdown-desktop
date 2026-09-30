@@ -42,6 +42,7 @@ exe = EXE(
     codesign_identity=None,
     entitlements_file=None,
     icon='assets/icon.ico' if os.path.exists('assets/icon.ico') else None,
+    version='version_info.txt' if os.path.exists('version_info.txt') else None,
 )
 coll = COLLECT(
     exe,
